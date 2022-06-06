@@ -566,7 +566,12 @@ public class Dex2Asm {
     }
 
     private void addHexDecodeMethod(ClassVisitor outCV, String className, String hexDecodeMethodNameBase) {
-        try (InputStream is = getHexClassAsStream()) {
+        InputStream hexClassStream = getHexClassAsStream();
+        if (hexClassStream == null) {
+            return;
+        }
+
+        try (InputStream is = hexClassStream) {
             ClassReader cr = new ClassReader(is);
             cr.accept(new ClassVisitor(Constants.ASM_VERSION) {
                 @Override

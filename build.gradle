@@ -12,6 +12,8 @@ allprojects {
     }
 }
 
+def junitVersion = '5.9.2'
+
 subprojects {
     apply plugin: 'java'
     apply plugin: 'maven-publish'
@@ -20,8 +22,9 @@ subprojects {
 
     dependencies {
         implementation fileTree(dir: 'libs', include: '*.jar')
-        testImplementation group: 'org.junit.vintage', name: 'junit-vintage-engine', version: '5.9.2'
-        testImplementation group: 'org.junit.platform', name: 'junit-platform-launcher', version: '1.9.2'
+        testImplementation "org.junit.jupiter:junit-jupiter-api:$junitVersion"
+        testImplementation "org.junit.jupiter:junit-jupiter-engine:$junitVersion"
+        testImplementation "org.junit.jupiter:junit-jupiter-params:$junitVersion"
     }
 
     [compileJava, compileTestJava]*.options.collect { options -> options.encoding = 'UTF-8' }

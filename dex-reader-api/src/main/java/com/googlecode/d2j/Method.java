@@ -10,19 +10,10 @@ import java.util.Objects;
  */
 public class Method {
 
-    /**
-     * name of the method.
-     */
     private final String name;
 
-    /**
-     * owner of the method, in TypeDescriptor format.
-     */
     private final String owner;
 
-    /**
-     * parameter types of the method, in TypeDescriptor format.
-     */
     private final Proto proto;
 
     public Proto getProto() {
@@ -46,26 +37,29 @@ public class Method {
     }
 
     /**
-     * @return the name
+     * @return name of the method.
      */
     public String getName() {
         return name;
     }
 
     /**
-     * @return the owner
+     * @return owner of the method, in TypeDescriptor format.
      */
     public String getOwner() {
         return owner;
     }
 
     /**
-     * @return the parameterTypes
+     * @return parameter types of the method, in TypeDescriptor format.
      */
     public String[] getParameterTypes() {
         return proto.getParameterTypes();
     }
 
+    /**
+     * @return return type of the method, in TypeDescriptor format.
+     */
     public String getReturnType() {
         return proto.getReturnType();
     }

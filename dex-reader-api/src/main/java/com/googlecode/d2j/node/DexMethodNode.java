@@ -1,5 +1,6 @@
 package com.googlecode.d2j.node;
 
+import com.googlecode.d2j.DexType;
 import com.googlecode.d2j.Method;
 import com.googlecode.d2j.Visibility;
 import com.googlecode.d2j.visitors.DexAnnotationAble;
@@ -7,8 +8,12 @@ import com.googlecode.d2j.visitors.DexAnnotationVisitor;
 import com.googlecode.d2j.visitors.DexClassVisitor;
 import com.googlecode.d2j.visitors.DexCodeVisitor;
 import com.googlecode.d2j.visitors.DexMethodVisitor;
+import com.googlecode.d2j.visitors.annotations.*;
+
 import java.util.ArrayList;
 import java.util.List;
+
+import static com.googlecode.d2j.DexConstants.*;
 
 public class DexMethodNode extends DexMethodVisitor {
 
@@ -19,6 +24,10 @@ public class DexMethodNode extends DexMethodVisitor {
     public DexCodeNode codeNode;
 
     public Method method;
+
+    public Signature signature;
+
+    public List<DexType> thrownTypes;
 
     public List<DexAnnotationNode>[] parameterAnns;
 
@@ -66,6 +75,22 @@ public class DexMethodNode extends DexMethodVisitor {
         if (codeNode != null) {
             codeNode.accept(mv);
         }
+
+        if (signature != null) {
+            DexAnnotationVisitor av = mv.visitAnnotation(ANNOTATION_SIGNATURE_TYPE, Visibility.SYSTEM)
+                    .visitArray("value");
+            for (String section : signature.getSections()) {
+                av.visit(null, section);
+            }
+        }
+
+        if (thrownTypes != null) {
+            DexAnnotationVisitor av = mv.visitAnnotation(ANNOTATION_THROWS_TYPE, Visibility.SYSTEM)
+                    .visitArray("value");
+            for (DexType thrown : thrownTypes) {
+                av.visit(null, thrown);
+            }
+        }
     }
 
     @Override
@@ -73,6 +98,16 @@ public class DexMethodNode extends DexMethodVisitor {
         if (anns == null) {
             anns = new ArrayList<>(5);
         }
+
+        switch (name) {
+            case ANNOTATION_SIGNATURE_TYPE:
+                return new SignatureVisitor(s -> signature = s);
+            case ANNOTATION_THROWS_TYPE:
+                return new ThrowsVisitor(t -> thrownTypes = t);
+           // case ANNOTATION_DEFAULT_TYPE: // TODO: Support default values for annotation methods
+           //     return null;
+        }
+
         DexAnnotationNode annotation = new DexAnnotationNode(name, visibility);
         anns.add(annotation);
         return annotation;

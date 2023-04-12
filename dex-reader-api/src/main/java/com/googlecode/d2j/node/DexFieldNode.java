@@ -5,8 +5,12 @@ import com.googlecode.d2j.Visibility;
 import com.googlecode.d2j.visitors.DexAnnotationVisitor;
 import com.googlecode.d2j.visitors.DexClassVisitor;
 import com.googlecode.d2j.visitors.DexFieldVisitor;
+import com.googlecode.d2j.visitors.annotations.SignatureVisitor;
+
 import java.util.ArrayList;
 import java.util.List;
+
+import static com.googlecode.d2j.DexConstants.*;
 
 /**
  * @author Bob Pan
@@ -18,6 +22,8 @@ public class DexFieldNode extends DexFieldVisitor {
     public List<DexAnnotationNode> anns;
 
     public Object cst;
+
+    public Signature signature;
 
     public Field field;
 
@@ -49,6 +55,14 @@ public class DexFieldNode extends DexFieldVisitor {
                 ann.accept(fv);
             }
         }
+
+        if (signature != null) {
+            DexAnnotationVisitor av = fv.visitAnnotation(ANNOTATION_SIGNATURE_TYPE, Visibility.SYSTEM)
+                    .visitArray("value");
+            for (String section : signature.getSections()) {
+                av.visit(null, section);
+            }
+        }
     }
 
     @Override
@@ -56,6 +70,11 @@ public class DexFieldNode extends DexFieldVisitor {
         if (anns == null) {
             anns = new ArrayList<>(5);
         }
+
+        if (name.equals(ANNOTATION_SIGNATURE_TYPE)) {
+            return new SignatureVisitor(s -> signature = s);
+        }
+
         DexAnnotationNode annotation = new DexAnnotationNode(name, visibility);
         anns.add(annotation);
         return annotation;

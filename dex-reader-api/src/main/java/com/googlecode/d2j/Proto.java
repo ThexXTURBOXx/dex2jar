@@ -26,16 +26,22 @@ public class Proto {
     private final String returnType;
 
     /**
-     * @return the parameterTypes
+     * @return parameter types of the method, in TypeDescriptor format.
      */
     public String[] getParameterTypes() {
         return parameterTypes;
     }
 
+    /**
+     * @return return type of the method, in TypeDescriptor format.
+     */
     public String getReturnType() {
         return returnType;
     }
 
+    /**
+     * @return descriptor of the method, in TypeDescriptor format.
+     */
     public String getDesc() {
         if (desc == null) {
             StringBuilder ps = new StringBuilder("(");

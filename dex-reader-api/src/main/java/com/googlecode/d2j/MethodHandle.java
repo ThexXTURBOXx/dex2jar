@@ -97,13 +97,13 @@ public class MethodHandle {
             return STATIC_PUT;
 
         case Opcodes.H_INVOKEVIRTUAL:
-            return INVOKE_INSTANCE; // ?
+            return INVOKE_INSTANCE;
 
         case Opcodes.H_INVOKESTATIC:
             return INVOKE_STATIC;
 
         case Opcodes.H_INVOKESPECIAL:
-            return INVOKE_DIRECT; // ?
+            return INVOKE_DIRECT;
 
         case Opcodes.H_NEWINVOKESPECIAL:
             return INVOKE_CONSTRUCTOR;

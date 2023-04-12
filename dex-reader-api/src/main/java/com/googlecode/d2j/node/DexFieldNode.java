@@ -57,10 +57,14 @@ public class DexFieldNode extends DexFieldVisitor {
         }
 
         if (signature != null) {
-            DexAnnotationVisitor av = fv.visitAnnotation(ANNOTATION_SIGNATURE_TYPE, Visibility.SYSTEM)
-                    .visitArray("value");
-            for (String section : signature.getSections()) {
-                av.visit(null, section);
+            DexAnnotationVisitor av = fv.visitAnnotation(ANNOTATION_SIGNATURE_TYPE, Visibility.SYSTEM);
+            if (av != null) {
+                DexAnnotationVisitor array = av.visitArray("value");
+                if (array != null) {
+                    for (String section : signature.getSections()) {
+                        array.visit(null, section);
+                    }
+                }
             }
         }
     }

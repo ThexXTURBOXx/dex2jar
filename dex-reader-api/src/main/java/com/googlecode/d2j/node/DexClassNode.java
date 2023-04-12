@@ -80,27 +80,33 @@ public class DexClassNode extends DexClassVisitor {
 		}
 
 		if (signature != null) {
-			DexAnnotationVisitor av = dcv.visitAnnotation(ANNOTATION_SIGNATURE_TYPE, Visibility.SYSTEM)
-					.visitArray("value");
-			for (String section : signature.getSections()) {
-				av.visit(null, section);
+			DexAnnotationVisitor av = dcv.visitAnnotation(ANNOTATION_SIGNATURE_TYPE, Visibility.SYSTEM);
+			if (av != null) {
+				DexAnnotationVisitor array = av.visitArray("value");
+				if (array != null) {
+					for (String section : signature.getSections()) {
+						array.visit(null, section);
+					}
+				}
 			}
 		}
 
 		if (isInnerClass()) {
 			DexAnnotationVisitor av = dcv.visitAnnotation(ANNOTATION_INNER_CLASS_TYPE, Visibility.SYSTEM);
-			av.visit("name", innerClassName);
-			av.visit("accessFlags", innerClassAccess);
+			if (av != null) {
+				av.visit("name", innerClassName);
+				av.visit("accessFlags", innerClassAccess);
+			}
 		}
 
 		if (enclosingClass != null) {
-			dcv.visitAnnotation(ANNOTATION_ENCLOSING_CLASS_TYPE, Visibility.SYSTEM)
-					.visit("value", enclosingClass);
+			DexAnnotationVisitor av = dcv.visitAnnotation(ANNOTATION_ENCLOSING_CLASS_TYPE, Visibility.SYSTEM);
+			if (av != null) av.visit("value", enclosingClass);
 		}
 
 		if (enclosingMethod != null) {
-			dcv.visitAnnotation(ANNOTATION_ENCLOSING_METHOD_TYPE, Visibility.SYSTEM)
-					.visit("value", enclosingMethod);
+			DexAnnotationVisitor av = dcv.visitAnnotation(ANNOTATION_ENCLOSING_METHOD_TYPE, Visibility.SYSTEM);
+			if (av != null) av.visit("value", enclosingMethod);
 		}
 	}
 

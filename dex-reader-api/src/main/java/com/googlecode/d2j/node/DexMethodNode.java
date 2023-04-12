@@ -77,18 +77,26 @@ public class DexMethodNode extends DexMethodVisitor {
         }
 
         if (signature != null) {
-            DexAnnotationVisitor av = mv.visitAnnotation(ANNOTATION_SIGNATURE_TYPE, Visibility.SYSTEM)
-                    .visitArray("value");
-            for (String section : signature.getSections()) {
-                av.visit(null, section);
+            DexAnnotationVisitor av = mv.visitAnnotation(ANNOTATION_SIGNATURE_TYPE, Visibility.SYSTEM);
+            if (av != null) {
+                DexAnnotationVisitor array = av.visitArray("value");
+                if (array != null) {
+                    for (String section : signature.getSections()) {
+                        array.visit(null, section);
+                    }
+                }
             }
         }
 
         if (thrownTypes != null) {
-            DexAnnotationVisitor av = mv.visitAnnotation(ANNOTATION_THROWS_TYPE, Visibility.SYSTEM)
-                    .visitArray("value");
-            for (DexType thrown : thrownTypes) {
-                av.visit(null, thrown);
+            DexAnnotationVisitor av = mv.visitAnnotation(ANNOTATION_THROWS_TYPE, Visibility.SYSTEM);
+            if (av != null) {
+                DexAnnotationVisitor array = av.visitArray("value");
+                if (array != null) {
+                    for (DexType thrown : thrownTypes) {
+                        av.visit(null, thrown);
+                    }
+                }
             }
         }
     }

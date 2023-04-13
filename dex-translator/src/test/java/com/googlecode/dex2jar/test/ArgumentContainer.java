@@ -19,4 +19,9 @@ public class ArgumentContainer {
 	public boolean allowFailure() {
 		return path.getFileName().toString().contains("mayfail");
 	}
+
+	@Override
+	public String toString() {
+		return path.getFileName() + " - " + cls.className;
+	}
 }

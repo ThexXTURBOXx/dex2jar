@@ -7,6 +7,13 @@ import org.objectweb.asm.AsmBridge;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.tree.MethodNode;
 
+/**
+ * Subtype of {@link Dex2Asm} but the {@link #convertCode(DexMethodNode, MethodVisitor, ClzCtx)}
+ * is wrapped with a {@link DexExceptionHandler} that can be provided in the constructor.
+ *
+ * @see DexExceptionHandler
+ * @see Dex2Asm
+ */
 public class Dex2AsmWithHandler extends Dex2Asm {
 
     protected final DexExceptionHandler exceptionHandler;

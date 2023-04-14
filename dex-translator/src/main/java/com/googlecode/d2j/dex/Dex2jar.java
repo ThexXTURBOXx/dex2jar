@@ -53,7 +53,7 @@ public final class Dex2jar {
         try {
             reader.accept(fileNode, readerConfig | DexFileReader.IGNORE_READ_EXCEPTION);
         } catch (Exception ex) {
-            exceptionHandler.handleFileException(ex);
+            exceptionHandler.handleClassFileException(ex);
         }
         ClassVisitorFactory cvf = new ClassVisitorFactory() {
             @Override
@@ -71,7 +71,7 @@ public final class Dex2jar {
                             data = cw.toByteArray();
                         } catch (Exception ex) {
                             System.err.printf("ASM fail to generate .class file: %s%n", className);
-                            exceptionHandler.handleFileException(ex);
+                            exceptionHandler.handleClassFileException(ex);
                             return;
                         }
                         try {

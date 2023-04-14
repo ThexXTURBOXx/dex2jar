@@ -45,8 +45,8 @@ public class BaksmaliBaseDexExceptionHandler extends BaseDexExceptionHandler {
     }
 
     @Override
-    public void handleFileException(Exception e) {
-        super.handleFileException(e);
+    public void handleClassFileException(Exception e) {
+        super.handleClassFileException(e);
         fileExceptions.add(e);
     }
 

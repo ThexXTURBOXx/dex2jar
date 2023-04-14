@@ -86,7 +86,7 @@ public class Dex2jarMultiThreadCmd extends BaseCmd {
         try {
             reader.accept(fileNode, DexFileReader.SKIP_DEBUG | DexFileReader.IGNORE_READ_EXCEPTION);
         } catch (Exception ex) {
-            exceptionHandler.handleFileException(ex);
+            exceptionHandler.handleClassFileException(ex);
             throw ex;
         }
         final FileSystem fs = createZip(file);
@@ -107,7 +107,7 @@ public class Dex2jarMultiThreadCmd extends BaseCmd {
                             data = cw.toByteArray();
                         } catch (Exception ex) {
                             System.err.printf("ASM fail to generate .class file: %s%n", className);
-                            exceptionHandler.handleFileException(ex);
+                            exceptionHandler.handleClassFileException(ex);
                             return;
                         }
                         try {
@@ -115,7 +115,7 @@ public class Dex2jarMultiThreadCmd extends BaseCmd {
                             BaseCmd.createParentDirectories(dist1);
                             Files.write(dist1, data);
                         } catch (IOException e) {
-                            exceptionHandler.handleFileException(e);
+                            exceptionHandler.handleClassFileException(e);
                         }
                     }
                 };

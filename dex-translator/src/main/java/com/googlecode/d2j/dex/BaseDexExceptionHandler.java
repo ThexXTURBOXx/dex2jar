@@ -10,7 +10,7 @@ import org.objectweb.asm.Opcodes;
 public class BaseDexExceptionHandler implements DexExceptionHandler {
 
     @Override
-    public void handleFileException(Exception e) {
+    public void handleClassFileException(Exception e) {
         e.printStackTrace(System.err);
     }
 

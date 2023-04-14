@@ -796,7 +796,7 @@ public class Dex2Asm {
     }
 
     public IrMethod dex2ir(DexMethodNode methodNode) {
-        boolean isStatic = 0 != (methodNode.access & DexConstants.ACC_STATIC);
+        boolean isStatic = (methodNode.access & DexConstants.ACC_STATIC) != 0;
         return Dex2IRConverter.convert(isStatic, methodNode.method, methodNode.codeNode);
     }
 

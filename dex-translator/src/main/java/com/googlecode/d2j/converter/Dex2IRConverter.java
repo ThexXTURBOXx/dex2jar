@@ -257,7 +257,7 @@ public class Dex2IRConverter {
             }
         }
 
-        Set<com.googlecode.dex2jar.ir.expr.Value> phiValues = new HashSet<>();
+        Set<Value> phiValues = new HashSet<>();
         List<LabelStmt> phiLabels = new ArrayList<>();
         for (int i = 0; i < frames.length; i++) {
             Dex2IrFrame frame = frames[i];
@@ -328,6 +328,7 @@ public class Dex2IRConverter {
         if (dexCodeNode.tryStmts == null)
             return;
 
+        // OPT: May be worth benchmarking if ArrayDeque is faster
         Queue<Integer> indices = new LinkedList<>();
         Set<Integer> handlers = new TreeSet<>();
         for (TryCatchNode tcb : dexCodeNode.tryStmts) {
@@ -450,7 +451,7 @@ public class Dex2IRConverter {
         }
     }
 
-    private void addPhi(DvmValue v, Set<com.googlecode.dex2jar.ir.expr.Value> phiValues, List<AssignStmt> phis) {
+    private void addPhi(DvmValue v, Set<Value> phiValues, List<AssignStmt> phis) {
         if (v != null) {
             if (v.local != null) {
                 if (v.parent != null) {
@@ -747,7 +748,7 @@ public class Dex2IRConverter {
      */
     private DvmInterpreter<DvmValue> createInterpreter() {
         return new DvmInterpreter<DvmValue>() {
-            private DvmValue emitValue(com.googlecode.dex2jar.ir.expr.Value value) {
+            private DvmValue emitValue(Value value) {
                 Local local = newLocal();
                 emit(Stmts.nAssign(local, value));
                 return new DvmValue(local);

@@ -37,17 +37,11 @@ import com.googlecode.dex2jar.ir.stmt.Stmt;
 import com.googlecode.dex2jar.ir.stmt.StmtList;
 import com.googlecode.dex2jar.ir.stmt.Stmts;
 import com.googlecode.dex2jar.ir.ts.UniqueQueue;
-import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
-import java.util.Stack;
-import java.util.TreeSet;
+import org.objectweb.asm.tree.AbstractInsnNode;
+
+import java.util.*;
+
+import static com.googlecode.d2j.util.Types.*;
 
 import static com.googlecode.dex2jar.ir.expr.Exprs.nAdd;
 import static com.googlecode.dex2jar.ir.expr.Exprs.nAnd;
@@ -104,56 +98,55 @@ import static com.googlecode.dex2jar.ir.stmt.Stmts.nVoidInvoke;
 
 public class Dex2IRConverter {
 
-    Map<DexLabel, DexLabelStmtNode> labelMap = new HashMap<>();
+    // Inputs
 
-    List<DexStmtNode> insnList;
+    private final DexCodeNode dexCodeNode;
+    private final Method method;
+    private final boolean isStatic;
+    private final List<DexStmtNode> stmtsList;
 
-    int[] parentCount;
+    // Analysis
 
-    IrMethod target;
-
-    DexCodeNode dexCodeNode;
-
-    List<Stmt> preEmit = new ArrayList<>();
-
-    List<Stmt> currentEmit;
-
-    Map<DexLabel, LabelStmt> map = new HashMap<>();
-
+    private int[] parentCount;
     private Dex2IrFrame[] frames;
 
-    private ArrayList<Stmt>[] emitStmts;
+    // Outputs
 
-    boolean initAllToZero = true;
+    private IrMethod target;
+    private List<Stmt>[] emitStmts;
+    private List<Stmt> currentEmit;
+    private final List<Stmt> preEmit = new ArrayList<>();
+    private final Map<DexLabel, LabelStmt> dexLabelToStmt = new IdentityHashMap<>();
+    private final Map<DexLabel, DexLabelStmtNode> labelToContainingNode = new IdentityHashMap<>();
 
-    static int sizeofType(String s) {
-        char t = s.charAt(0);
-        if (t == 'J' || t == 'D') {
-            return 2;
-        } else {
-            return 1;
-        }
-    }
-
-    static class Dex2IrFrame extends DvmFrame<DvmValue> {
-
-        Dex2IrFrame(int totalRegister) {
-            super(totalRegister);
-        }
-
-    }
-
-    static int methodArgCount(String[] args) {
-        int i = 0;
-        for (String s : args) {
-            i += sizeofType(s);
-        }
-        return i;
-    }
-
-    @SuppressWarnings("unchecked")
-    public IrMethod convert(boolean isStatic, Method method, DexCodeNode dexCodeNode) {
+    private Dex2IRConverter(boolean isStatic, Method method, DexCodeNode dexCodeNode) {
+        this.isStatic = isStatic;
+        this.method = method;
         this.dexCodeNode = dexCodeNode;
+
+        // Note that the contents of this list ARE modified further below.
+        stmtsList = dexCodeNode.stmts;
+    }
+
+    /**
+     * @param isStatic
+     *         Flag to generate indicate the input method is static.
+     * @param method
+     *         Method declaration to convert.
+     * @param dexCodeNode
+     *         Code from the method to convert.
+     *
+     * @return Intermediate converted format of the method.
+     */
+    public static IrMethod convert(boolean isStatic, Method method, DexCodeNode dexCodeNode) {
+        return new Dex2IRConverter(isStatic, method, dexCodeNode).convert();
+    }
+
+    /**
+     * @return Intermediate converted format of the method.
+     */
+    private IrMethod convert() {
+        // Create the output method instance based on details of the method declaration.
         IrMethod irMethod = new IrMethod();
         irMethod.args = method.getParameterTypes();
         irMethod.ret = method.getReturnType();
@@ -162,64 +155,89 @@ public class Dex2IRConverter {
         irMethod.isStatic = isStatic;
         target = irMethod;
 
-
-        insnList = dexCodeNode.stmts;
-        for (int i = 0; i < insnList.size(); i++) {
-            DexStmtNode stmtNode = insnList.get(i);
+        // Map all input dex-statements to their indices in the statements list.
+        // Record mapping of labels to their containing nodes.
+        for (int i = 0; i < stmtsList.size(); i++) {
+            DexStmtNode stmtNode = stmtsList.get(i);
             stmtNode.index = i;
             if (stmtNode instanceof DexLabelStmtNode) {
                 DexLabelStmtNode dexLabelStmtNode = (DexLabelStmtNode) stmtNode;
-                labelMap.put(dexLabelStmtNode.label, dexLabelStmtNode);
+                labelToContainingNode.put(dexLabelStmtNode.label, dexLabelStmtNode);
             }
         }
 
+        // Apply fix for some edge cases with broken exception handlers.
         fixExceptionHandlers();
 
-        BitSet[] exBranch = new BitSet[insnList.size()];
-        parentCount = new int[insnList.size()];
-        initParentCount(parentCount);
+        // Create an array for tracking outbound control flow edges for each statement.
+        // For any statement, the associated BitSet marks each offset as:
+        //  - set[N] == 0: Insn does not flow into N
+        //  - set[N] == 1: Insn flows into N
+        BitSet[] exBranch = new BitSet[stmtsList.size()];
 
-        BitSet handlers = new BitSet(insnList.size());
-        initExceptionHandlers(dexCodeNode, exBranch, handlers);
+        // Create an array tracking how many incoming edges to the statement exist.
+        createInitialParentCounts();
 
-        DvmInterpreter<DvmValue> interpreter = buildInterpreter();
-        frames = new Dex2IrFrame[insnList.size()];
-        emitStmts = new ArrayList[insnList.size()];
-        BitSet access = new BitSet(insnList.size());
+        // Create a bitset for exception handlers.
+        // Each entry in the bitset is such that:
+        //  - set[N] == 0: statement at N is NOT an exception handler start
+        //  - set[N] == 1: statement at N is a Label and is an exception handler start
+        BitSet handlers = new BitSet(stmtsList.size());
+        initExceptionHandlers(exBranch, handlers);
 
+        // Create an interpreter to analyze the stack and local variable table contents
+        // for each index in the statements list.
+        DvmInterpreter<DvmValue> interpreter = createInterpreter();
+
+        // Array of frames to store results of the interpreters visitation of the method code.
+        frames = new Dex2IrFrame[stmtsList.size()];
+
+        // Array of statements mapped from the input statements.
+        emitStmts = new List[stmtsList.size()];
+
+        // Bitset tracking which statements were visited (any set[N] == 0 is dead code)
+        BitSet access = new BitSet(stmtsList.size());
+
+        // Visit the dex method statements with the ASM interpreter.
+        //  - Updates emitted statements array
+        //  - Populates frames array
         dfs(exBranch, handlers, access, interpreter);
 
+        // Populate statement-list by iterating over the dex statements and seeing what
+        // statement values we have associated to each input statement.
         StmtList stmts = target.stmts;
         stmts.addAll(preEmit);
-        for (int i = 0; i < insnList.size(); i++) {
-            DexStmtNode p = insnList.get(i);
+        for (int i = 0; i < stmtsList.size(); i++) {
+            DexStmtNode p = stmtsList.get(i);
             if (access.get(i)) {
+                // Add the associated statements of the visited statements.
                 List<Stmt> es = emitStmts[i];
                 if (es != null) {
                     stmts.addAll(es);
                 }
             } else {
+                // Add unvisited labels.
                 if (p instanceof DexLabelStmtNode) {
                     stmts.add(getLabel(((DexLabelStmtNode) p).label));
                 }
             }
         }
+
+        // Clear statements.
         emitStmts = null;
 
 
-        // https://github.com/pxb1988/dex2jar/issues/501
-        // too many Objects put in Q, make the objects unique in Q
+        // A standard linked-list may run out of memory as reported: https://github.com/pxb1988/dex2jar/issues/501
+        // This can be solved by using a unique-queue which denies duplicate entries.
         Queue<DvmValue> queue = new UniqueQueue<>();
-
-        for (int i1 = 0; i1 < frames.length; i1++) {
-            Dex2IrFrame frame = frames[i1];
-            if (parentCount[i1] > 1 && frame != null && access.get(i1)) {
+        for (int i = 0; i < frames.length; i++) {
+            Dex2IrFrame frame = frames[i];
+            if (parentCount[i] > 1 && frame != null && access.get(i)) {
                 for (int j = 0; j < frame.getTotalRegisters(); j++) {
                     DvmValue v = frame.getReg(j);
                     addToQueue(queue, v);
                 }
             }
-
         }
 
         while (!queue.isEmpty()) {
@@ -244,7 +262,7 @@ public class Dex2IRConverter {
         for (int i = 0; i < frames.length; i++) {
             Dex2IrFrame frame = frames[i];
             if (parentCount[i] > 1 && frame != null && access.get(i)) {
-                DexStmtNode p = insnList.get(i);
+                DexStmtNode p = stmtsList.get(i);
                 LabelStmt labelStmt = getLabel(((DexLabelStmtNode) p).label);
                 List<AssignStmt> phis = new ArrayList<>();
                 for (int j = 0; j < frame.getTotalRegisters(); j++) {
@@ -265,18 +283,18 @@ public class Dex2IRConverter {
         return target;
     }
 
-    // fix https://github.com/pxb1988/dex2jar/issues/165
+    // TODO: Validate this resolves https://github.com/pxb1988/dex2jar/issues/165
     private void supplementLineNumber(DexCodeNode dexCodeNode) {
         if (dexCodeNode == null || dexCodeNode.debugNode == null || dexCodeNode.debugNode.debugNodes == null) {
             return;
         }
-        Map<DexLabel, Integer> lineNumber = new HashMap<>();
+        Map<DexLabel, Integer> lineNumber = new IdentityHashMap<>();
         for (DexDebugNode.DexDebugOpNode debugNode : dexCodeNode.debugNode.debugNodes) {
             if (debugNode instanceof DexDebugNode.DexDebugOpNode.LineNumber) {
                 lineNumber.put(debugNode.label, ((DexDebugNode.DexDebugOpNode.LineNumber) debugNode).line);
             }
         }
-        for (Map.Entry<DexLabel, LabelStmt> entry : map.entrySet()) {
+        for (Map.Entry<DexLabel, LabelStmt> entry : dexLabelToStmt.entrySet()) {
             Integer line = lineNumber.get(entry.getKey());
             if (line != null) {
                 entry.getValue().lineNumber = line;
@@ -285,104 +303,122 @@ public class Dex2IRConverter {
     }
 
     /**
-     * issue 63
-     * <pre>
+     * <pre>{@code
      * L1:
      *    STMTs
      * L2:
      *    RETURN
      * L1~L2 > L2 Exception
-     * </pre>
+     * }</pre>
      * <p/>
      * fix to
      * <p/>
-     * <pre>
+     * <pre>{@code
      * L1:
      *    STMTs
      * L2:
      *    RETURN
-     * L3:
-     *    goto L2
-     * L1~L2 > L3 Exception
-     * </pre>
+     * L3:                  // INSERTED
+     *    goto L2           // INSERTED
+     * L1~L2 > L3 Exception // Destination switched
+     * }</pre>
      */
     private void fixExceptionHandlers() {
-        if (dexCodeNode.tryStmts == null) {
+        // Skip if there are no exception handlers.
+        if (dexCodeNode.tryStmts == null)
             return;
-        }
-        Queue<Integer> q = new LinkedList<>();
+
+        Queue<Integer> indices = new LinkedList<>();
         Set<Integer> handlers = new TreeSet<>();
         for (TryCatchNode tcb : dexCodeNode.tryStmts) {
-            for (DexLabel h : tcb.handler) {
-                int index = indexOf(h);
-                q.add(index + 1); // add the next insn after label
+            for (DexLabel label : tcb.handler) {
+                int index = indexOf(label);
+                indices.add(index + 1); // add the next insn after label
                 handlers.add(index);
             }
         }
-
-        q.add(0);
+        indices.add(0);
 
         Map<Integer, DexLabel> needChange = new HashMap<>();
+        BitSet access = new BitSet(stmtsList.size());
+        while (!indices.isEmpty()) {
+            Integer keyIndex = indices.poll();
+            int index = keyIndex;
 
-        BitSet access = new BitSet(insnList.size());
-        while (!q.isEmpty()) {
-            Integer key = q.poll();
-            int index = key;
-            if (access.get(index)) {
+            // Skip if already visited
+            if (access.get(index))
                 continue;
-            } else {
-                access.set(index);
-            }
-            if (handlers.contains(key)) { // the cfg goes to a exception handler
-                needChange.put(key, null);
-            }
-            DexStmtNode node = insnList.get(key);
+            access.set(index);
+
+            // If the handler contains the current index, the control flow has
+            // entered into an exception handler here.
+            if (handlers.contains(keyIndex))
+                needChange.put(keyIndex, null);
+
+            // Update which indices to visit based on control flow of the statement.
+            DexStmtNode node = stmtsList.get(keyIndex);
             if (node.op == null) {
-                q.add(index + 1);
+                indices.add(index + 1);
             } else {
                 Op op = node.op;
                 if (op.canContinue()) {
-                    q.add(index + 1);
+                    indices.add(index + 1);
                 }
                 if (op.canBranch()) {
                     JumpStmtNode jump = (JumpStmtNode) node;
-                    q.add(indexOf(jump.label));
+                    indices.add(indexOf(jump.label));
                 }
                 if (op.canSwitch()) {
                     for (DexLabel dexLabel : ((BaseSwitchStmtNode) node).labels) {
-                        q.add(indexOf(dexLabel));
+                        indices.add(indexOf(dexLabel));
                     }
                 }
             }
         }
 
+        // If there are indices marked as needing to be changed, that means we've encountered
+        // an exception handler block start here.
         if (needChange.size() > 0) {
             for (TryCatchNode tcb : dexCodeNode.tryStmts) {
                 DexLabel[] handler = tcb.handler;
                 for (int i = 0; i < handler.length; i++) {
-                    DexLabel h = handler[i];
-                    int index = indexOf(h);
+                    DexLabel handlerLabel = handler[i];
+                    int index = indexOf(handlerLabel);
                     if (needChange.containsKey(index)) {
-                        DexLabel n = needChange.get(index);
-                        if (n == null) {
-                            n = new DexLabel();
-                            needChange.put(index, n);
-                            DexLabelStmtNode dexStmtNode = new DexLabelStmtNode(n);
-                            dexStmtNode.index = insnList.size();
-                            insnList.add(dexStmtNode);
-                            labelMap.put(n, dexStmtNode);
-                            JumpStmtNode jumpStmtNode = new JumpStmtNode(Op.GOTO, 0, 0, h);
-                            jumpStmtNode.index = insnList.size();
-                            insnList.add(jumpStmtNode);
+                        DexLabel toChangeLabel = needChange.get(index);
+                        if (toChangeLabel == null) {
+                            // Create label instance and mark as to-change
+                            toChangeLabel = new DexLabel();
+                            needChange.put(index, toChangeLabel);
+
+                            // Add the label to the input statements list.
+                            DexLabelStmtNode dexStmtNode = new DexLabelStmtNode(toChangeLabel);
+                            dexStmtNode.index = stmtsList.size();
+                            stmtsList.add(dexStmtNode);
+                            labelToContainingNode.put(toChangeLabel, dexStmtNode);
+
+                            // Insert a GOTO jump to the handler and add it to the method as well.
+                            JumpStmtNode jumpStmtNode = new JumpStmtNode(Op.GOTO, 0, 0, handlerLabel);
+                            jumpStmtNode.index = stmtsList.size();
+                            stmtsList.add(jumpStmtNode);
                         }
-                        handler[i] = n;
+                        handler[i] = toChangeLabel;
                     }
                 }
             }
         }
     }
 
-    private void initExceptionHandlers(DexCodeNode dexCodeNode, BitSet[] exBranch, BitSet handlers) {
+    /**
+     * Populates the handlers bitset, where each set bit represents an offset in the {@link #stmtsList}
+     * that denotes the start range of an exception handler.
+     *
+     * @param handlers
+     *         Handler bitset to populate.
+     * @param exBranch
+     *         Control flow destination edges.
+     */
+    private void initExceptionHandlers( BitSet[] exBranch, BitSet handlers) {
         if (dexCodeNode.tryStmts != null) {
             for (TryCatchNode tcb : dexCodeNode.tryStmts) {
                 for (DexLabel h : tcb.handler) {
@@ -391,12 +427,12 @@ public class Dex2IRConverter {
                 boolean hasEx = false;
                 int endIndex = indexOf(tcb.end);
                 for (int p = indexOf(tcb.start) + 1; p < endIndex; p++) {
-                    DexStmtNode stmt = insnList.get(p);
+                    DexStmtNode stmt = stmtsList.get(p);
                     if (stmt.op != null && stmt.op.canThrow()) {
                         hasEx = true;
                         BitSet x = exBranch[p];
                         if (x == null) {
-                            exBranch[p] = new BitSet(insnList.size());
+                            exBranch[p] = new BitSet(stmtsList.size());
                             x = exBranch[p];
                         }
                         for (DexLabel h : tcb.handler) {
@@ -434,15 +470,6 @@ public class Dex2IRConverter {
         }
     }
 
-    Local getLocal(DvmValue value) {
-        Local local = value.local;
-        if (local == null) {
-            value.local = newLocal();
-            local = value.local;
-        }
-        return local;
-    }
-
     private void addToQueue(Queue<DvmValue> queue, DvmValue v) {
         if (v != null) {
             if (v.local != null) {
@@ -462,6 +489,16 @@ public class Dex2IRConverter {
         }
     }
 
+    /**
+     * Called from {@link #dfs(BitSet[], BitSet, BitSet, DvmInterpreter)} before each statement is visited.
+     * <p/>
+     * Sets the {@link #currentEmit} to the {@link #emitStmts} at the given index.
+     * The current-emit list contains the list of {@link Stmt} items that map to the {@link AbstractInsnNode}
+     * at the given position in the {@link #stmtsList}.
+     *
+     * @param index
+     *         Current statement index to visit.
+     */
     private void setCurrentEmit(int index) {
         currentEmit = emitStmts[index];
         if (currentEmit == null) {
@@ -470,58 +507,90 @@ public class Dex2IRConverter {
         }
     }
 
+    /**
+     * Visits the {@link #dexCodeNode}'s {@link #stmtsList statements} with the given interpreter.
+     *
+     * @param exBranch
+     *         Array mapping statement offsets to bitsets representing which statements are potential branch targets.
+     * @param handlers
+     *         Bitset representing which statements are catch { ... } block handler start positions.
+     * @param access
+     *         Bitset tracking which statements were visited <i>(any {@code set[N] == 0} is dead code)</i>
+     * @param interpreter
+     *         Interpreter instance to handle updating frame states, and {@link #currentEmit statement emission}.
+     */
     private void dfs(BitSet[] exBranch, BitSet handlers, BitSet access, DvmInterpreter<DvmValue> interpreter) {
         currentEmit = preEmit;
 
+        // Create the first frame to begin our analysis with.
         Dex2IrFrame first = initFirstFrame(dexCodeNode, target);
         if (parentCount[0] > 1) {
             merge(first, 0);
         } else {
             frames[0] = first;
         }
+
+        // Keep reference local, minor performance optimization
+        List<DexStmtNode> stmtsList = this.stmtsList;
+
+        // Track visited statement control flow.
+        // Control flows will push to the stack,
+        // and visiting them to handle their subsequent analysis will pop them off.
         Stack<DexStmtNode> stack = new Stack<>();
-        stack.push(insnList.get(0));
+        stack.push(stmtsList.get(0));
+
+        // Temporary frame which we will operate on with our interpreter.
         Dex2IrFrame tmp = new Dex2IrFrame(dexCodeNode.totalRegister);
-
-
         while (!stack.isEmpty()) {
-            DexStmtNode p = stack.pop();
-            int index = p.index;
-            if (!access.get(index)) {
-                access.set(index);
-            } else {
-                continue;
-            }
-            Dex2IrFrame frame = frames[index];
+            DexStmtNode statement = stack.pop();
+            int index = statement.index;
+
+            // Check if we've already visited this statement.
+            // If so, we skip execution.
+            if (access.get(index)) continue;
+            access.set(index);
+
+            // Update current emission statements target.
+            // Any item we create IR statements for will relate to the current statement at this index.
             setCurrentEmit(index);
 
-            if (p instanceof DexLabelStmtNode) {
-                emit(getLabel(((DexLabelStmtNode) p).label));
+            // Current frame to operate on.
+            Dex2IrFrame frame = frames[index];
+
+            // Handle emitting statements for labels
+            if (statement instanceof DexLabelStmtNode) {
+                emit(getLabel(((DexLabelStmtNode) statement).label));
                 if (handlers.get(index)) {
                     Local ex = newLocal();
                     emit(Stmts.nIdentity(ex, Exprs.nExceptionRef("Ljava/lang/Throwable;")));
                     frame.setTmp(new DvmValue(ex));
                 }
             }
+
+            // ???
             BitSet ex = exBranch[index];
             if (ex != null) {
                 for (int i = ex.nextSetBit(0); i >= 0; i = ex.nextSetBit(i + 1)) {
                     merge(frame, i);
-                    stack.push(insnList.get(i));
+                    stack.push(stmtsList.get(i));
                 }
             }
 
+            // Copy state of 'frame' into 'tmp' and execute the interpreter in our 'tmp' frame.
             tmp.init(frame);
+
+            // Handle emitting statements.
+            // The switch case here handles some edge cases not implemented in the interpreter logic.
             try {
-                if (p.op != null) {
-                    switch (p.op) {
+                if (statement.op != null) {
+                    switch (statement.op) {
                     case RETURN_VOID:
                         emit(nReturnVoid());
                         break;
                     case GOTO:
                     case GOTO_16:
                     case GOTO_32:
-                        emit(nGoto(getLabel(((JumpStmtNode) p).label)));
+                        emit(nGoto(getLabel(((JumpStmtNode) statement).label)));
                         break;
                     case NOP:
                         emit(nNop());
@@ -532,50 +601,56 @@ public class Dex2IRConverter {
                                 "Ljava/lang/VerifyError;")));
                         break;
                     default:
-                        tmp.execute(p, interpreter);
+                        tmp.execute(statement, interpreter);
                         break;
                     }
                 }
             } catch (Exception exception) {
-                throw new RuntimeException("Fail on Op " + p.op + " index " + index, exception);
+                throw new RuntimeException("Fail on Op " + statement.op + " index " + index, exception);
             }
 
-
-            if (p.op != null) {
-                Op op = p.op;
+            // Queue next statement to visit based on how they affect control flow.
+            if (statement.op != null) {
+                Op op = statement.op;
                 if (op.canBranch()) {
-                    JumpStmtNode jump = (JumpStmtNode) p;
+                    JumpStmtNode jump = (JumpStmtNode) statement;
                     int targetIndex = indexOf(jump.label);
-                    stack.push(insnList.get(targetIndex));
+                    stack.push(stmtsList.get(targetIndex));
                     merge(tmp, targetIndex);
                 }
                 if (op.canSwitch()) {
-                    BaseSwitchStmtNode switchStmtNode = (BaseSwitchStmtNode) p;
+                    BaseSwitchStmtNode switchStmtNode = (BaseSwitchStmtNode) statement;
                     for (DexLabel label : switchStmtNode.labels) {
                         int targetIndex = indexOf(label);
-                        stack.push(insnList.get(targetIndex));
+                        stack.push(stmtsList.get(targetIndex));
                         merge(tmp, targetIndex);
                     }
                 }
                 if (op.canContinue()) {
-                    stack.push(insnList.get(index + 1));
+                    stack.push(stmtsList.get(index + 1));
                     merge(tmp, index + 1);
                 }
             } else {
-
-                stack.push(insnList.get(index + 1));
+                stack.push(stmtsList.get(index + 1));
                 merge(tmp, index + 1);
-
             }
+
             // cleanup frame it is useless
             if (parentCount[index] <= 1) {
                 frames[index] = null;
             }
-
         }
-
     }
 
+    /**
+     * Update's the child's {@link DvmValue#parent} and {@link DvmValue#otherParent} attributes
+     * to link to the given parent value.
+     *
+     * @param parent
+     *         Parent value to use.
+     * @param child
+     *         Child with parent relations to update to point to the {@code parent}.
+     */
     private void relate(DvmValue parent, DvmValue child) {
         if (child.parent == null) {
             child.parent = parent;
@@ -587,42 +662,63 @@ public class Dex2IRConverter {
         }
     }
 
-    void merge(Dex2IrFrame src, int dst) {
-        Dex2IrFrame distFrame = frames[dst];
-        if (distFrame == null) {
-            frames[dst] = new Dex2IrFrame(dexCodeNode.totalRegister);
-            distFrame = frames[dst];
+    /**
+     * Ensures contents of the frame at the given {@code destination} are compatible with the source frame.
+     * <br>
+     * Assigns stack and local variable values' {@link DvmValue#parent parent relations} in the destination frame
+     * to the values in the provided source frame.
+     *
+     * @param sourceFrame
+     *         Current source frame.
+     * @param destination
+     *         Destination frame to flow into.
+     */
+   private void merge(Dex2IrFrame sourceFrame, int destination) {
+        Dex2IrFrame destinationFrame = frames[destination];
+        if (destinationFrame == null) {
+            frames[destination] = new Dex2IrFrame(dexCodeNode.totalRegister);
+            destinationFrame = frames[destination];
         }
-        if (parentCount[dst] > 1) {
-            for (int i = 0; i < src.getTotalRegisters(); i++) {
-                DvmValue p = src.getReg(i);
-                DvmValue q = distFrame.getReg(i);
-                if (p != null) {
-                    if (q == null) {
-                        q = new DvmValue();
-                        distFrame.setReg(i, q);
+        if (parentCount[destination] > 1) {
+            // Merge register states such that the destination takes on values to be compatible with our source frame.
+            for (int i = 0; i < sourceFrame.getTotalRegisters(); i++) {
+                DvmValue sourceRegister = sourceFrame.getReg(i);
+                DvmValue destinationRegister = destinationFrame.getReg(i);
+                if (sourceRegister != null) {
+                    if (destinationRegister == null) {
+                        destinationRegister = new DvmValue();
+                        destinationFrame.setReg(i, destinationRegister);
                     }
-                    relate(p, q);
+                    relate(sourceRegister, destinationRegister);
                 }
             }
         } else {
-            distFrame.init(src);
+            // Source frame seems to not be visited (now control flow branch inputs)
+            // Can just do basic init (copy operation)
+            destinationFrame.init(sourceFrame);
         }
     }
 
+    /**
+     * @return New local with the {@link Local#lsIndex} of the next available slot.
+     */
     private Local newLocal() {
-        Local thiz = Exprs.nLocal(target.locals.size());
-        target.locals.add(thiz);
-        return thiz;
+        Local local = Exprs.nLocal(target.locals.size());
+        target.locals.add(local);
+        return local;
     }
 
-    void emit(Stmt stmt) {
+    /**
+     * @param stmt
+     *         Statement to append to {@link #currentEmit}
+     */
+    private void emit(Stmt stmt) {
         currentEmit.add(stmt);
     }
 
     private Dex2IrFrame initFirstFrame(DexCodeNode methodNode, IrMethod target) {
         Dex2IrFrame first = new Dex2IrFrame(methodNode.totalRegister);
-        int x = methodNode.totalRegister - methodArgCount(target.args);
+        int x = methodNode.totalRegister - methodArgsSizeTotal(target.args);
         if (!target.isStatic) { // not static
             Local thiz = newLocal();
             emit(Stmts.nIdentity(thiz, Exprs.nThisRef(target.owner)));
@@ -632,28 +728,47 @@ public class Dex2IRConverter {
             Local p = newLocal();
             emit(Stmts.nIdentity(p, Exprs.nParameterRef(target.args[i], i)));
             first.setReg(x, new DvmValue(p));
-            x += sizeofType(target.args[i]);
+            x += sizeOfType(target.args[i]);
         }
 
-        if (initAllToZero) {
             for (int i = 0; i < first.getTotalRegisters(); i++) {
                 if (first.getReg(i) == null) {
-                    Local p = newLocal();
-                    emit(nAssign(p, nInt(0)));
-                    first.setReg(i, new DvmValue(p));
+                    Local local = newLocal();
+                    emit(nAssign(local, nInt(0)));
+                    first.setReg(i, new DvmValue(local));
                 }
             }
-        }
 
         return first;
     }
 
-    private DvmInterpreter<DvmValue> buildInterpreter() {
+    /**
+     * @return Interpreter that also emits {@link Stmt} values as code is interpreted.
+     */
+    private DvmInterpreter<DvmValue> createInterpreter() {
         return new DvmInterpreter<DvmValue>() {
-            DvmValue b(com.googlecode.dex2jar.ir.expr.Value value) {
+            private DvmValue emitValue(com.googlecode.dex2jar.ir.expr.Value value) {
                 Local local = newLocal();
                 emit(Stmts.nAssign(local, value));
                 return new DvmValue(local);
+            }
+
+            private void emitNotFindOperand(DexStmtNode insn) {
+                String msg;
+                switch (insn.op) {
+                    case MOVE_RESULT:
+                    case MOVE_RESULT_OBJECT:
+                    case MOVE_RESULT_WIDE:
+                        msg = "can't get operand(s) for " + insn.op + ", wrong position ?";
+                        break;
+                    default:
+                        msg = "can't get operand(s) for " + insn.op + ", out-of-range or not initialized ?";
+                        break;
+                }
+
+                System.err.println("WARN: " + msg);
+                emit(nThrow(nInvokeNew(new Value[]{nString("d2j: " + msg)},
+                        new String[]{"Ljava/lang/String;"}, "Ljava/lang/VerifyError;")));
             }
 
             @Override
@@ -663,17 +778,17 @@ public class Dex2IRConverter {
                 case CONST_16:
                 case CONST_4:
                 case CONST_HIGH16:
-                    return b(nInt((Integer) ((ConstStmtNode) insn).value));
+                    return emitValue(nInt((Integer) ((ConstStmtNode) insn).value));
                 case CONST_WIDE:
                 case CONST_WIDE_16:
                 case CONST_WIDE_32:
                 case CONST_WIDE_HIGH16:
-                    return b(nLong((Long) ((ConstStmtNode) insn).value));
+                    return emitValue(nLong((Long) ((ConstStmtNode) insn).value));
                 case CONST_CLASS:
-                    return b(nType((DexType) ((ConstStmtNode) insn).value));
+                    return emitValue(nType((DexType) ((ConstStmtNode) insn).value));
                 case CONST_STRING:
                 case CONST_STRING_JUMBO:
-                    return b(nString((String) ((ConstStmtNode) insn).value));
+                    return emitValue(nString((String) ((ConstStmtNode) insn).value));
                 case SGET:
                 case SGET_BOOLEAN:
                 case SGET_BYTE:
@@ -682,9 +797,9 @@ public class Dex2IRConverter {
                 case SGET_SHORT:
                 case SGET_WIDE:
                     Field field = ((FieldStmtNode) insn).field;
-                    return b(nStaticField(field.getOwner(), field.getName(), field.getType()));
+                    return emitValue(nStaticField(field.getOwner(), field.getName(), field.getType()));
                 case NEW_INSTANCE:
-                    return b(nNew(((TypeStmtNode) insn).type));
+                    return emitValue(nNew(((TypeStmtNode) insn).type));
                 default:
                 }
                 return null;
@@ -694,82 +809,82 @@ public class Dex2IRConverter {
             public DvmValue copyOperation(DexStmtNode insn, DvmValue value) {
                 if (value == null) {
                     emitNotFindOperand(insn);
-                    return b(nInt(0));
+                    return emitValue(nInt(0));
                 }
-                return b(getLocal(value));
+                return emitValue(getLocal(value));
             }
 
             @Override
             public DvmValue unaryOperation(DexStmtNode insn, DvmValue value) {
                 if (value == null) {
                     emitNotFindOperand(insn);
-                    return b(nInt(0));
+                    return emitValue(nInt(0));
                 }
                 Local local = getLocal(value);
                 switch (insn.op) {
                 case NOT_INT:
-                    return b(nNot(local, "I"));
+                    return emitValue(nNot(local, "I"));
                 case NOT_LONG:
-                    return b(nNot(local, "J"));
+                    return emitValue(nNot(local, "J"));
 
                 case NEG_DOUBLE:
-                    return b(nNeg(local, "D"));
+                    return emitValue(nNeg(local, "D"));
 
                 case NEG_FLOAT:
-                    return b(nNeg(local, "F"));
+                    return emitValue(nNeg(local, "F"));
 
                 case NEG_INT:
-                    return b(nNeg(local, "I"));
+                    return emitValue(nNeg(local, "I"));
 
                 case NEG_LONG:
-                    return b(nNeg(local, "J"));
+                    return emitValue(nNeg(local, "J"));
                 case INT_TO_BYTE:
-                    return b(nCast(local, "I", "B"));
+                    return emitValue(nCast(local, "I", "B"));
 
                 case INT_TO_CHAR:
-                    return b(nCast(local, "I", "C"));
+                    return emitValue(nCast(local, "I", "C"));
 
                 case INT_TO_DOUBLE:
-                    return b(nCast(local, "I", "D"));
+                    return emitValue(nCast(local, "I", "D"));
 
                 case INT_TO_FLOAT:
-                    return b(nCast(local, "I", "F"));
+                    return emitValue(nCast(local, "I", "F"));
 
                 case INT_TO_LONG:
-                    return b(nCast(local, "I", "J"));
+                    return emitValue(nCast(local, "I", "J"));
 
                 case INT_TO_SHORT:
-                    return b(nCast(local, "I", "S"));
+                    return emitValue(nCast(local, "I", "S"));
 
                 case FLOAT_TO_DOUBLE:
-                    return b(nCast(local, "F", "D"));
+                    return emitValue(nCast(local, "F", "D"));
 
                 case FLOAT_TO_INT:
-                    return b(nCast(local, "F", "I"));
+                    return emitValue(nCast(local, "F", "I"));
 
                 case FLOAT_TO_LONG:
-                    return b(nCast(local, "F", "J"));
+                    return emitValue(nCast(local, "F", "J"));
 
                 case DOUBLE_TO_FLOAT:
-                    return b(nCast(local, "D", "F"));
+                    return emitValue(nCast(local, "D", "F"));
 
                 case DOUBLE_TO_INT:
-                    return b(nCast(local, "D", "I"));
+                    return emitValue(nCast(local, "D", "I"));
 
                 case DOUBLE_TO_LONG:
-                    return b(nCast(local, "D", "J"));
+                    return emitValue(nCast(local, "D", "J"));
 
                 case LONG_TO_DOUBLE:
-                    return b(nCast(local, "J", "D"));
+                    return emitValue(nCast(local, "J", "D"));
 
                 case LONG_TO_FLOAT:
-                    return b(nCast(local, "J", "F"));
+                    return emitValue(nCast(local, "J", "F"));
 
                 case LONG_TO_INT:
-                    return b(nCast(local, "J", "I"));
+                    return emitValue(nCast(local, "J", "I"));
 
                 case ARRAY_LENGTH:
-                    return b(nLength(local));
+                    return emitValue(nLength(local));
 
                 case IF_EQZ:
                     emit(nIf(Exprs
@@ -832,16 +947,16 @@ public class Dex2IRConverter {
                 case IGET_SHORT:
                 case IGET_WIDE: {
                     Field field = ((FieldStmtNode) insn).field;
-                    return b(nField(local, field.getOwner(), field.getName(), field.getType()));
+                    return emitValue(nField(local, field.getOwner(), field.getName(), field.getType()));
                 }
                 case INSTANCE_OF:
-                    return b(nInstanceOf(local, ((TypeStmtNode) insn).type));
+                    return emitValue(nInstanceOf(local, ((TypeStmtNode) insn).type));
 
                 case NEW_ARRAY:
-                    return b(nNewArray(((TypeStmtNode) insn).type.substring(1), local));
+                    return emitValue(nNewArray(((TypeStmtNode) insn).type.substring(1), local));
 
                 case CHECK_CAST:
-                    return b(nCheckCast(local, ((TypeStmtNode) insn).type));
+                    return emitValue(nCheckCast(local, ((TypeStmtNode) insn).type));
 
                 case MONITOR_ENTER:
                     emit(nLock(local));
@@ -854,27 +969,27 @@ public class Dex2IRConverter {
                     return null;
                 case ADD_INT_LIT16:
                 case ADD_INT_LIT8:
-                    return b(nAdd(local, nInt(((Stmt2R1NNode) insn).content), "I"));
+                    return emitValue(nAdd(local, nInt(((Stmt2R1NNode) insn).content), "I"));
 
                 case RSUB_INT_LIT8:
                 case RSUB_INT://
-                    return b(nSub(nInt(((Stmt2R1NNode) insn).content), local, "I"));
+                    return emitValue(nSub(nInt(((Stmt2R1NNode) insn).content), local, "I"));
 
                 case MUL_INT_LIT8:
                 case MUL_INT_LIT16:
-                    return b(nMul(local, nInt(((Stmt2R1NNode) insn).content), "I"));
+                    return emitValue(nMul(local, nInt(((Stmt2R1NNode) insn).content), "I"));
 
                 case DIV_INT_LIT16:
                 case DIV_INT_LIT8:
-                    return b(nDiv(local, nInt(((Stmt2R1NNode) insn).content), "I"));
+                    return emitValue(nDiv(local, nInt(((Stmt2R1NNode) insn).content), "I"));
 
                 case REM_INT_LIT16:
                 case REM_INT_LIT8:
-                    return b(nRem(local, nInt(((Stmt2R1NNode) insn).content), "I"));
+                    return emitValue(nRem(local, nInt(((Stmt2R1NNode) insn).content), "I"));
 
                 case AND_INT_LIT16:
                 case AND_INT_LIT8:
-                    return b(nAnd(local, nInt(((Stmt2R1NNode) insn).content),
+                    return emitValue(nAnd(local, nInt(((Stmt2R1NNode) insn).content),
                             ((Stmt2R1NNode) insn).content < 0
                                     || ((Stmt2R1NNode) insn).content > 1
                                     ? "I"
@@ -882,7 +997,7 @@ public class Dex2IRConverter {
 
                 case OR_INT_LIT16:
                 case OR_INT_LIT8:
-                    return b(nOr(local, nInt(((Stmt2R1NNode) insn).content),
+                    return emitValue(nOr(local, nInt(((Stmt2R1NNode) insn).content),
                             ((Stmt2R1NNode) insn).content < 0
                                     || ((Stmt2R1NNode) insn).content > 1
                                     ? "I"
@@ -890,20 +1005,20 @@ public class Dex2IRConverter {
 
                 case XOR_INT_LIT16:
                 case XOR_INT_LIT8:
-                    return b(nXor(local, nInt(((Stmt2R1NNode) insn).content),
+                    return emitValue(nXor(local, nInt(((Stmt2R1NNode) insn).content),
                             ((Stmt2R1NNode) insn).content < 0
                                     || ((Stmt2R1NNode) insn).content > 1
                                     ? "I"
                                     : TypeClass.ZI.name));
 
                 case SHL_INT_LIT8:
-                    return b(nShl(local, nInt(((Stmt2R1NNode) insn).content), "I"));
+                    return emitValue(nShl(local, nInt(((Stmt2R1NNode) insn).content), "I"));
 
                 case SHR_INT_LIT8:
-                    return b(nShr(local, nInt(((Stmt2R1NNode) insn).content), "I"));
+                    return emitValue(nShr(local, nInt(((Stmt2R1NNode) insn).content), "I"));
 
                 case USHR_INT_LIT8:
-                    return b(nUshr(local, nInt(((Stmt2R1NNode) insn).content), "I"));
+                    return emitValue(nUshr(local, nInt(((Stmt2R1NNode) insn).content), "I"));
                 case FILL_ARRAY_DATA:
                     emit(nFillArrayData(local, nArrayValue(((FillArrayDataStmtNode) insn).array)));
                     return null;
@@ -917,142 +1032,142 @@ public class Dex2IRConverter {
             public DvmValue binaryOperation(DexStmtNode insn, DvmValue value1, DvmValue value2) {
                 if (value1 == null || value2 == null) {
                     emitNotFindOperand(insn);
-                    return b(nInt(0));
+                    return emitValue(nInt(0));
                 }
                 Local local1 = getLocal(value1);
                 Local local2 = getLocal(value2);
                 switch (insn.op) {
                 case AGET:
-                    return b(nArray(local1, local2, TypeClass.IF.name));
+                    return emitValue(nArray(local1, local2, TypeClass.IF.name));
 
                 case AGET_BOOLEAN:
-                    return b(nArray(local1, local2, "Z"));
+                    return emitValue(nArray(local1, local2, "Z"));
 
                 case AGET_BYTE:
-                    return b(nArray(local1, local2, "B"));
+                    return emitValue(nArray(local1, local2, "B"));
 
                 case AGET_CHAR:
-                    return b(nArray(local1, local2, "C"));
+                    return emitValue(nArray(local1, local2, "C"));
 
                 case AGET_OBJECT:
-                    return b(nArray(local1, local2, "L"));
+                    return emitValue(nArray(local1, local2, "L"));
 
                 case AGET_SHORT:
-                    return b(nArray(local1, local2, "S"));
+                    return emitValue(nArray(local1, local2, "S"));
 
                 case AGET_WIDE:
-                    return b(nArray(local1, local2, TypeClass.JD.name));
+                    return emitValue(nArray(local1, local2, TypeClass.JD.name));
 
                 case CMP_LONG:
-                    return b(nLCmp(local1, local2));
+                    return emitValue(nLCmp(local1, local2));
 
                 case CMPG_DOUBLE:
-                    return b(nDCmpg(local1, local2));
+                    return emitValue(nDCmpg(local1, local2));
 
                 case CMPG_FLOAT:
-                    return b(nFCmpg(local1, local2));
+                    return emitValue(nFCmpg(local1, local2));
 
                 case CMPL_DOUBLE:
-                    return b(nDCmpl(local1, local2));
+                    return emitValue(nDCmpl(local1, local2));
 
                 case CMPL_FLOAT:
-                    return b(nFCmpl(local1, local2));
+                    return emitValue(nFCmpl(local1, local2));
 
                 case ADD_DOUBLE:
-                    return b(nAdd(local1, local2, "D"));
+                    return emitValue(nAdd(local1, local2, "D"));
 
                 case ADD_FLOAT:
-                    return b(nAdd(local1, local2, "F"));
+                    return emitValue(nAdd(local1, local2, "F"));
 
                 case ADD_INT:
-                    return b(nAdd(local1, local2, "I"));
+                    return emitValue(nAdd(local1, local2, "I"));
 
                 case ADD_LONG:
-                    return b(nAdd(local1, local2, "J"));
+                    return emitValue(nAdd(local1, local2, "J"));
 
                 case SUB_DOUBLE:
-                    return b(nSub(local1, local2, "D"));
+                    return emitValue(nSub(local1, local2, "D"));
 
                 case SUB_FLOAT:
-                    return b(nSub(local1, local2, "F"));
+                    return emitValue(nSub(local1, local2, "F"));
 
                 case SUB_INT:
-                    return b(nSub(local1, local2, "I"));
+                    return emitValue(nSub(local1, local2, "I"));
 
                 case SUB_LONG:
-                    return b(nSub(local1, local2, "J"));
+                    return emitValue(nSub(local1, local2, "J"));
 
                 case MUL_DOUBLE:
-                    return b(nMul(local1, local2, "D"));
+                    return emitValue(nMul(local1, local2, "D"));
 
                 case MUL_FLOAT:
-                    return b(nMul(local1, local2, "F"));
+                    return emitValue(nMul(local1, local2, "F"));
 
                 case MUL_INT:
-                    return b(nMul(local1, local2, "I"));
+                    return emitValue(nMul(local1, local2, "I"));
 
                 case MUL_LONG:
-                    return b(nMul(local1, local2, "J"));
+                    return emitValue(nMul(local1, local2, "J"));
 
                 case DIV_DOUBLE:
-                    return b(nDiv(local1, local2, "D"));
+                    return emitValue(nDiv(local1, local2, "D"));
 
                 case DIV_FLOAT:
-                    return b(nDiv(local1, local2, "F"));
+                    return emitValue(nDiv(local1, local2, "F"));
 
                 case DIV_INT:
-                    return b(nDiv(local1, local2, "I"));
+                    return emitValue(nDiv(local1, local2, "I"));
 
                 case DIV_LONG:
-                    return b(nDiv(local1, local2, "J"));
+                    return emitValue(nDiv(local1, local2, "J"));
 
                 case REM_DOUBLE:
-                    return b(nRem(local1, local2, "D"));
+                    return emitValue(nRem(local1, local2, "D"));
 
                 case REM_FLOAT:
-                    return b(nRem(local1, local2, "F"));
+                    return emitValue(nRem(local1, local2, "F"));
 
                 case REM_INT:
-                    return b(nRem(local1, local2, "I"));
+                    return emitValue(nRem(local1, local2, "I"));
 
                 case REM_LONG:
-                    return b(nRem(local1, local2, "J"));
+                    return emitValue(nRem(local1, local2, "J"));
 
                 case AND_INT:
-                    return b(nAnd(local1, local2, TypeClass.ZI.name));
+                    return emitValue(nAnd(local1, local2, TypeClass.ZI.name));
 
                 case AND_LONG:
-                    return b(nAnd(local1, local2, "J"));
+                    return emitValue(nAnd(local1, local2, "J"));
 
                 case OR_INT:
-                    return b(nOr(local1, local2, TypeClass.ZI.name));
+                    return emitValue(nOr(local1, local2, TypeClass.ZI.name));
 
                 case OR_LONG:
-                    return b(nOr(local1, local2, "J"));
+                    return emitValue(nOr(local1, local2, "J"));
 
                 case XOR_INT:
-                    return b(nXor(local1, local2, TypeClass.ZI.name));
+                    return emitValue(nXor(local1, local2, TypeClass.ZI.name));
 
                 case XOR_LONG:
-                    return b(nXor(local1, local2, "J"));
+                    return emitValue(nXor(local1, local2, "J"));
 
                 case SHL_INT:
-                    return b(nShl(local1, local2, "I"));
+                    return emitValue(nShl(local1, local2, "I"));
 
                 case SHL_LONG:
-                    return b(nShl(local1, local2, "J"));
+                    return emitValue(nShl(local1, local2, "J"));
 
                 case SHR_INT:
-                    return b(nShr(local1, local2, "I"));
+                    return emitValue(nShr(local1, local2, "I"));
 
                 case SHR_LONG:
-                    return b(nShr(local1, local2, "J"));
+                    return emitValue(nShr(local1, local2, "J"));
 
                 case USHR_INT:
-                    return b(nUshr(local1, local2, "I"));
+                    return emitValue(nUshr(local1, local2, "I"));
 
                 case USHR_LONG:
-                    return b(nUshr(local1, local2, "J"));
+                    return emitValue(nUshr(local1, local2, "J"));
 
                 case IF_EQ:
                     emit(nIf(Exprs
@@ -1092,100 +1207,100 @@ public class Dex2IRConverter {
                     return null;
 
                 case ADD_DOUBLE_2ADDR:
-                    return b(nAdd(local1, local2, "D"));
+                    return emitValue(nAdd(local1, local2, "D"));
 
                 case ADD_FLOAT_2ADDR:
-                    return b(nAdd(local1, local2, "F"));
+                    return emitValue(nAdd(local1, local2, "F"));
 
                 case ADD_INT_2ADDR:
-                    return b(nAdd(local1, local2, "I"));
+                    return emitValue(nAdd(local1, local2, "I"));
 
                 case ADD_LONG_2ADDR:
-                    return b(nAdd(local1, local2, "J"));
+                    return emitValue(nAdd(local1, local2, "J"));
 
                 case SUB_DOUBLE_2ADDR:
-                    return b(nSub(local1, local2, "D"));
+                    return emitValue(nSub(local1, local2, "D"));
 
                 case SUB_FLOAT_2ADDR:
-                    return b(nSub(local1, local2, "F"));
+                    return emitValue(nSub(local1, local2, "F"));
 
                 case SUB_INT_2ADDR:
-                    return b(nSub(local1, local2, "I"));
+                    return emitValue(nSub(local1, local2, "I"));
 
                 case SUB_LONG_2ADDR:
-                    return b(nSub(local1, local2, "J"));
+                    return emitValue(nSub(local1, local2, "J"));
 
                 case MUL_DOUBLE_2ADDR:
-                    return b(nMul(local1, local2, "D"));
+                    return emitValue(nMul(local1, local2, "D"));
 
                 case MUL_FLOAT_2ADDR:
-                    return b(nMul(local1, local2, "F"));
+                    return emitValue(nMul(local1, local2, "F"));
 
                 case MUL_INT_2ADDR:
-                    return b(nMul(local1, local2, "I"));
+                    return emitValue(nMul(local1, local2, "I"));
 
                 case MUL_LONG_2ADDR:
-                    return b(nMul(local1, local2, "J"));
+                    return emitValue(nMul(local1, local2, "J"));
 
                 case DIV_DOUBLE_2ADDR:
-                    return b(nDiv(local1, local2, "D"));
+                    return emitValue(nDiv(local1, local2, "D"));
 
                 case DIV_FLOAT_2ADDR:
-                    return b(nDiv(local1, local2, "F"));
+                    return emitValue(nDiv(local1, local2, "F"));
 
                 case DIV_INT_2ADDR:
-                    return b(nDiv(local1, local2, "I"));
+                    return emitValue(nDiv(local1, local2, "I"));
 
                 case DIV_LONG_2ADDR:
-                    return b(nDiv(local1, local2, "J"));
+                    return emitValue(nDiv(local1, local2, "J"));
 
                 case REM_DOUBLE_2ADDR:
-                    return b(nRem(local1, local2, "D"));
+                    return emitValue(nRem(local1, local2, "D"));
 
                 case REM_FLOAT_2ADDR:
-                    return b(nRem(local1, local2, "F"));
+                    return emitValue(nRem(local1, local2, "F"));
 
                 case REM_INT_2ADDR:
-                    return b(nRem(local1, local2, "I"));
+                    return emitValue(nRem(local1, local2, "I"));
 
                 case REM_LONG_2ADDR:
-                    return b(nRem(local1, local2, "J"));
+                    return emitValue(nRem(local1, local2, "J"));
 
                 case AND_INT_2ADDR:
-                    return b(nAnd(local1, local2, TypeClass.ZI.name));
+                    return emitValue(nAnd(local1, local2, TypeClass.ZI.name));
 
                 case AND_LONG_2ADDR:
-                    return b(nAnd(local1, local2, "J"));
+                    return emitValue(nAnd(local1, local2, "J"));
 
                 case OR_INT_2ADDR:
-                    return b(nOr(local1, local2, TypeClass.ZI.name));
+                    return emitValue(nOr(local1, local2, TypeClass.ZI.name));
 
                 case OR_LONG_2ADDR:
-                    return b(nOr(local1, local2, "J"));
+                    return emitValue(nOr(local1, local2, "J"));
 
                 case XOR_INT_2ADDR:
-                    return b(nXor(local1, local2, TypeClass.ZI.name));
+                    return emitValue(nXor(local1, local2, TypeClass.ZI.name));
 
                 case XOR_LONG_2ADDR:
-                    return b(nXor(local1, local2, "J"));
+                    return emitValue(nXor(local1, local2, "J"));
 
                 case SHL_INT_2ADDR:
-                    return b(nShl(local1, local2, "I"));
+                    return emitValue(nShl(local1, local2, "I"));
 
                 case SHL_LONG_2ADDR:
-                    return b(nShl(local1, local2, "J"));
+                    return emitValue(nShl(local1, local2, "J"));
 
                 case SHR_INT_2ADDR:
-                    return b(nShr(local1, local2, "I"));
+                    return emitValue(nShr(local1, local2, "I"));
 
                 case SHR_LONG_2ADDR:
-                    return b(nShr(local1, local2, "J"));
+                    return emitValue(nShr(local1, local2, "J"));
 
                 case USHR_INT_2ADDR:
-                    return b(nUshr(local1, local2, "I"));
+                    return emitValue(nUshr(local1, local2, "I"));
 
                 case USHR_LONG_2ADDR:
-                    return b(nUshr(local1, local2, "J"));
+                    return emitValue(nUshr(local1, local2, "J"));
                 default:
                     break;
                 }
@@ -1196,7 +1311,7 @@ public class Dex2IRConverter {
             public DvmValue ternaryOperation(DexStmtNode insn, DvmValue value1, DvmValue value2, DvmValue value3) {
                 if (value1 == null || value2 == null || value3 == null) {
                     emitNotFindOperand(insn);
-                    return b(nInt(0));
+                    return emitValue(nInt(0));
                 }
                 Local localArray = getLocal(value1);
                 Local localIndex = getLocal(value2);
@@ -1234,7 +1349,7 @@ public class Dex2IRConverter {
                 for (DvmValue v : values) {
                     if (v == null) {
                         emitNotFindOperand(insn);
-                        return b(nInt(0));
+                        return emitValue(nInt(0));
                     }
                 }
 
@@ -1265,7 +1380,7 @@ public class Dex2IRConverter {
                         emit(nVoidInvoke(invoke));
                         return null;
                     } else {
-                        return b(invoke);
+                        return emitValue(invoke);
                     }
                 }
                 case INVOKE_POLYMORPHIC:
@@ -1280,7 +1395,7 @@ public class Dex2IRConverter {
                         emit(nVoidInvoke(invoke));
                         return null;
                     } else {
-                        return b(invoke);
+                        return emitValue(invoke);
                     }
                 }
                 default:
@@ -1326,30 +1441,12 @@ public class Dex2IRConverter {
                         emit(nVoidInvoke(invoke));
                         return null;
                     } else {
-                        return b(invoke);
+                        return emitValue(invoke);
                     }
 
                 }
 
 
-            }
-
-            void emitNotFindOperand(DexStmtNode insn) {
-                String msg;
-                switch (insn.op) {
-                case MOVE_RESULT:
-                case MOVE_RESULT_OBJECT:
-                case MOVE_RESULT_WIDE:
-                    msg = "can't get operand(s) for " + insn.op + ", wrong position ?";
-                    break;
-                default:
-                    msg = "can't get operand(s) for " + insn.op + ", out-of-range or not initialized ?";
-                    break;
-                }
-
-                System.err.println("WARN: " + msg);
-                emit(nThrow(nInvokeNew(new Value[]{nString("d2j: " + msg)},
-                        new String[]{"Ljava/lang/String;"}, "Ljava/lang/VerifyError;")));
             }
 
             @Override
@@ -1358,12 +1455,17 @@ public class Dex2IRConverter {
                     emitNotFindOperand(insn);
                     return;
                 }
-
                 emit(nReturn(getLocal(value)));
             }
         };
     }
 
+    /**
+     * @param handler
+     *         Input dex labels.
+     *
+     * @return Associated IR label statements.
+     */
     private LabelStmt[] getLabels(DexLabel[] handler) {
         LabelStmt[] ts = new LabelStmt[handler.length];
         for (int i = 0; i < handler.length; i++) {
@@ -1372,43 +1474,85 @@ public class Dex2IRConverter {
         return ts;
     }
 
-    LabelStmt getLabel(DexLabel label) {
-        LabelStmt ls = map.get(label);
+    /**
+     * @param label
+     *         Input dex label.
+     *
+     * @return Associated IR label statement.
+     */
+    private LabelStmt getLabel(DexLabel label) {
+        LabelStmt ls = dexLabelToStmt.get(label);
         if (ls == null) {
             ls = Stmts.nLabel();
-            map.put(label, ls);
+            dexLabelToStmt.put(label, ls);
         }
         return ls;
     }
 
-    private void initParentCount(int[] parentCount) {
-        parentCount[0] = 1; // first stmt always have one parent
-        for (DexStmtNode p : insnList) {
-            Op op = p.op;
+    /**
+     * Gets the associated IR {@link Local} for the given {@link DvmValue}.
+     *
+     * @param value
+     *         DVM value to get IR local of.
+     *
+     * @return IR local for the given value.
+     */
+    private Local getLocal(DvmValue value) {
+        Local local = value.local;
+        if (local == null) {
+            value.local = newLocal();
+            local = value.local;
+        }
+        return local;
+    }
+
+    /**
+     * Populates {@link #parentCount} with an array containing a mapping of statement offsets,
+     * to the number of inbound control flow edges.
+     */
+    private void createInitialParentCounts() {
+        parentCount = new int[stmtsList.size()];
+
+        // Initial state, method entry-point always has inbound control flow edge.
+        parentCount[0] = 1;
+
+        // Iterate over all statements, counting inbound control flow edges per each statement
+        // and storing the results in the array defined above.
+        for (DexStmtNode stmt : stmtsList) {
+            Op op = stmt.op;
             if (op == null) {
-                if (p.index < parentCount.length - 1) { // not the last label
-                    parentCount[p.index + 1]++;
+                // Increment the statement (Should be a label, as the op is null)
+                // if it is not the last one.
+                if (stmt.index < parentCount.length - 1) {
+                    parentCount[stmt.index + 1]++;
                 }
             } else {
+                // Increment control flow destinations of flow modifying statements.
                 if (op.canBranch()) {
-                    parentCount[indexOf(((JumpStmtNode) p).label)]++;
+                    parentCount[indexOf(((JumpStmtNode) stmt).label)]++;
                 }
                 if (op.canSwitch()) {
-                    BaseSwitchStmtNode switchStmtNode = (BaseSwitchStmtNode) p;
+                    BaseSwitchStmtNode switchStmtNode = (BaseSwitchStmtNode) stmt;
                     for (DexLabel label : switchStmtNode.labels) {
                         parentCount[indexOf(label)]++;
                     }
                 }
                 if (op.canContinue()) {
-                    parentCount[p.index + 1]++;
+                    parentCount[stmt.index + 1]++;
                 }
             }
         }
     }
 
-    int indexOf(DexLabel label) {
-        DexLabelStmtNode dexLabelStmtNode = labelMap.get(label);
+    private int indexOf(DexLabel label) {
+        DexLabelStmtNode dexLabelStmtNode = labelToContainingNode.get(label);
         return dexLabelStmtNode.index;
+    }
+
+    static class Dex2IrFrame extends DvmFrame<DvmValue> {
+        Dex2IrFrame(int totalRegister) {
+            super(totalRegister);
+        }
     }
 
     static class DvmValue {
@@ -1427,6 +1571,4 @@ public class Dex2IRConverter {
         }
 
     }
-
-
 }

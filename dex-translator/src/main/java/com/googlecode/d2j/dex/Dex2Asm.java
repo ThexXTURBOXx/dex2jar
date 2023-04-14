@@ -796,8 +796,8 @@ public class Dex2Asm {
     }
 
     public IrMethod dex2ir(DexMethodNode methodNode) {
-        return new Dex2IRConverter()
-                .convert(0 != (methodNode.access & DexConstants.ACC_STATIC), methodNode.method, methodNode.codeNode);
+        boolean isStatic = 0 != (methodNode.access & DexConstants.ACC_STATIC);
+        return Dex2IRConverter.convert(isStatic, methodNode.method, methodNode.codeNode);
     }
 
     protected static Object findAnnotationAttribute(DexAnnotationNode ann, String name) {

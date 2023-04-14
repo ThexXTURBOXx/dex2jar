@@ -7,7 +7,6 @@ import com.googlecode.dex2jar.ir.expr.Value.E0Expr;
  * Represent a Reference expression
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  * @see VT#THIS_REF
  * @see VT#PARAMETER_REF
  * @see VT#EXCEPTION_REF

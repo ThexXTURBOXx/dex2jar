@@ -3,7 +3,6 @@ package com.googlecode.d2j.dex;
 
 /**
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public final class V3 {
 

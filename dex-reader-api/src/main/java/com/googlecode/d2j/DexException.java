@@ -2,7 +2,6 @@ package com.googlecode.d2j;
 
 /**
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class DexException extends RuntimeException {
 

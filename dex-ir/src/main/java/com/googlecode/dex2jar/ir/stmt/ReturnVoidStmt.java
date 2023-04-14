@@ -7,7 +7,6 @@ import com.googlecode.dex2jar.ir.stmt.Stmt.E0Stmt;
  * Represent a RETURN_VOID statement
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  * @see ST#RETURN_VOID
  */
 public class ReturnVoidStmt extends E0Stmt {

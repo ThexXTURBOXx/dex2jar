@@ -9,7 +9,6 @@ import com.googlecode.dex2jar.ir.stmt.Stmt.E1Stmt;
  * possible op type: AbstractInvokeExpr, FieldExpr, or others
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev: 8da5a5faa6bd $
  * @see ST#VOID_INVOKE
  */
 public class VoidInvokeStmt extends E1Stmt {

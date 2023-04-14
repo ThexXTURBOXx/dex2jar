@@ -8,7 +8,6 @@ import com.googlecode.dex2jar.ir.expr.Value.EnExpr;
  * Represent a NEW_MUTI_ARRAY expression.
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev: 9fd8005bbaa4 $
  * @see VT#NEW_MUTI_ARRAY
  */
 public class NewMutiArrayExpr extends EnExpr {

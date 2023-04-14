@@ -25,7 +25,6 @@ import java.util.Set;
  * Transform Stmt to SSA form and count local read
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class SSATransformer implements Transformer {
 

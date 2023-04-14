@@ -7,7 +7,6 @@ import com.googlecode.dex2jar.ir.expr.Value;
  * Represent a TABLE_SWITCH statement
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev: 9fd8005bbaa4 $
  * @see ST#TABLE_SWITCH
  */
 public class TableSwitchStmt extends BaseSwitchStmt {

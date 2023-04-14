@@ -7,7 +7,6 @@ import com.googlecode.dex2jar.ir.expr.Value.E2Expr;
  * Represent an Array expression
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  * @see VT#ARRAY
  */
 public class ArrayExpr extends E2Expr {

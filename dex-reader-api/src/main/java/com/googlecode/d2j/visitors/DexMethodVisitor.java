@@ -4,7 +4,6 @@ import com.googlecode.d2j.Visibility;
 
 /**
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class DexMethodVisitor implements DexAnnotationAble {
 

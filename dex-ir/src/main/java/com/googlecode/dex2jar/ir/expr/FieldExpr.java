@@ -7,7 +7,6 @@ import com.googlecode.dex2jar.ir.expr.Value.E1Expr;
  * Represent a non-static Field expression.
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev: 9fd8005bbaa4 $
  * @see VT#FIELD
  */
 public class FieldExpr extends E1Expr {

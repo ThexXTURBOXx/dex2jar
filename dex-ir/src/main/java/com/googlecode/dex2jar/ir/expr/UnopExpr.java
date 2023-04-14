@@ -7,7 +7,6 @@ import com.googlecode.dex2jar.ir.expr.Value.E1Expr;
  * Represent a LENGTH,NEG expression
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  * @see VT#LENGTH
  * @see VT#NEG
  * @see VT#NOT

@@ -7,7 +7,6 @@ import com.googlecode.dex2jar.ir.expr.Value.E2Expr;
  * Represent a Binop expression, value = op1 vt op2
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  * @see VT#ADD
  * @see VT#AND
  * @see VT#LCMP

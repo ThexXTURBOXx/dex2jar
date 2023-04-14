@@ -8,7 +8,6 @@ import com.googlecode.dex2jar.ir.stmt.Stmt.E2Stmt;
  * Represent an Assign statement
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev: 8da5a5faa6bd $
  * @see ST#ASSIGN
  * @see ST#IDENTITY
  * @see ST#FILL_ARRAY_DATA

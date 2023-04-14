@@ -10,7 +10,6 @@ import java.lang.reflect.Array;
  * Represent a constant, number/string/type
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class Constant extends E0Expr {
 

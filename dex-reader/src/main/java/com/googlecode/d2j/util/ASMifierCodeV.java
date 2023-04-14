@@ -14,7 +14,6 @@ import java.util.Map;
 
 /**
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class ASMifierCodeV extends DexCodeVisitor implements DexConstants {
 

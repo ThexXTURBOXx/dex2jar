@@ -6,7 +6,6 @@ import java.util.Objects;
  * represent a method_id_item in dex file format
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class Method {
 

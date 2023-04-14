@@ -4,7 +4,6 @@ package com.googlecode.d2j;
  * represent a field_id_item in dex file format
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class Field {
 

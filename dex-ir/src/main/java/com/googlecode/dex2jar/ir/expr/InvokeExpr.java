@@ -11,7 +11,6 @@ import com.googlecode.dex2jar.ir.Util;
  * {@link VT#INVOKE_STATIC} all ops are arguments. The return type of {@link VT#INVOKE_NEW} is owner instead of ret
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev: 9fd8005bbaa4 $
  * @see VT#INVOKE_INTERFACE
  * @see VT#INVOKE_NEW
  * @see VT#INVOKE_SPECIAL

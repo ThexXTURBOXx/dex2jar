@@ -9,7 +9,6 @@ import java.util.Set;
  * Represent a statement
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  * @see ST
  * @see ET
  */

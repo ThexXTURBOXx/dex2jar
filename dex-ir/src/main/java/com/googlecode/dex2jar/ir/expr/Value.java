@@ -7,7 +7,6 @@ import com.googlecode.dex2jar.ir.LabelAndLocalMapper;
  * Represent a local/constant/expression
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public abstract class Value implements Cloneable {
 

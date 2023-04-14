@@ -8,7 +8,6 @@ import com.googlecode.dex2jar.ir.stmt.Stmt.E1Stmt;
  * Represent a IF statement
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev: 9fd8005bbaa4 $
  * @see ST#IF
  */
 public class IfStmt extends E1Stmt implements JumpStmt {

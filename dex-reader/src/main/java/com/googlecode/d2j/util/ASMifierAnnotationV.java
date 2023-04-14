@@ -6,7 +6,6 @@ import com.googlecode.d2j.visitors.DexAnnotationVisitor;
 
 /**
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class ASMifierAnnotationV extends DexAnnotationVisitor implements DexConstants {
 

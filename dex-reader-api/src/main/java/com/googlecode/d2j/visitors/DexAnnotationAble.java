@@ -6,7 +6,6 @@ import com.googlecode.d2j.Visibility;
  * 用于访问注解
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public interface DexAnnotationAble {
 

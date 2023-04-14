@@ -4,7 +4,6 @@ package com.googlecode.d2j;
  * constants in dex file
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public interface DexConstants {
 

@@ -9,7 +9,6 @@ import java.util.Iterator;
  * Represent a list of statement.
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class StmtList implements Iterable<Stmt>, java.util.Comparator<Stmt> {
 

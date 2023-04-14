@@ -6,7 +6,6 @@ import com.googlecode.dex2jar.ir.stmt.LabelStmt;
  * TODO DOC
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class Trap {
 

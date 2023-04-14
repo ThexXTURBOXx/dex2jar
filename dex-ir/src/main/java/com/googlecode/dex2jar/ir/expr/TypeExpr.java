@@ -8,7 +8,6 @@ import com.googlecode.dex2jar.ir.expr.Value.E1Expr;
  * Represent a Type expression
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  * @see VT#CHECK_CAST
  * @see VT#INSTANCE_OF
  * @see VT#NEW_ARRAY

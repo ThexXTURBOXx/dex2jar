@@ -7,7 +7,6 @@ import com.googlecode.dex2jar.ir.expr.Value.E0Expr;
  * TODO DOC
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class Local extends E0Expr {
 

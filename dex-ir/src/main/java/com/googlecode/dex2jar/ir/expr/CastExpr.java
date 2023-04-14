@@ -8,7 +8,6 @@ import com.googlecode.dex2jar.ir.expr.Value.E1Expr;
  * * @see VT#CAST
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class CastExpr extends E1Expr {
 

@@ -53,7 +53,6 @@ import static com.googlecode.d2j.DexConstants.DEX_037;
  * </pre>
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class DexFileReader implements BaseDexFileReader {
 

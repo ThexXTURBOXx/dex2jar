@@ -9,7 +9,6 @@ import java.util.List;
  * Represent a Label statement
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  * @see ST#LABEL
  */
 public class LabelStmt extends E0Stmt {

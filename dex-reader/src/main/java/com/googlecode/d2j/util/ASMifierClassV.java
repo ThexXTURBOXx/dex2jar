@@ -14,7 +14,6 @@ import java.util.List;
 
 /**
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class ASMifierClassV extends DexClassVisitor {
 

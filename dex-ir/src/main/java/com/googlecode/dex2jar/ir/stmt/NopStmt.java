@@ -7,7 +7,6 @@ import com.googlecode.dex2jar.ir.stmt.Stmt.E0Stmt;
  * Represent a NOP statement
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  * @see ST#NOP
  */
 public class NopStmt extends E0Stmt {

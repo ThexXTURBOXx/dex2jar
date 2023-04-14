@@ -23,7 +23,6 @@ import java.util.TreeSet;
  * TODO DOC
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public final class Cfg {
 

@@ -9,7 +9,6 @@ import com.googlecode.d2j.Proto;
 
 /**
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public final class Escape implements DexConstants {
 

@@ -8,7 +8,6 @@ import com.googlecode.dex2jar.ir.expr.Value.E0Expr;
  * Represent a StaticField expression
  *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev: 9fd8005bbaa4 $
  * @see VT#STATIC_FIELD
  */
 public class StaticFieldExpr extends E0Expr {

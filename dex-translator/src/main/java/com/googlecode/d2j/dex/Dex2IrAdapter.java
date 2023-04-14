@@ -85,7 +85,6 @@ import static com.googlecode.dex2jar.ir.stmt.Stmts.nVoidInvoke;
 
 /**
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class Dex2IrAdapter extends DexCodeVisitor implements Opcodes, DexConstants {
 

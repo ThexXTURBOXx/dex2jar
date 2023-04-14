@@ -444,8 +444,12 @@ public class Dex2IRConverter {
                     }
                 }
                 if (hasEx) {
-                    target.traps.add(new Trap(getLabel(tcb.start), getLabel(tcb.end), getLabels(tcb.handler),
-                            tcb.type));
+                    Trap trap = new Trap(
+                            getLabel(tcb.start),
+                            getLabel(tcb.end),
+                            getLabels(tcb.handler),
+                            tcb.type);
+                    target.traps.add(trap);
                 }
             }
         }
@@ -827,60 +831,42 @@ public class Dex2IRConverter {
                     return emitValue(nNot(local, "I"));
                 case NOT_LONG:
                     return emitValue(nNot(local, "J"));
-
                 case NEG_DOUBLE:
                     return emitValue(nNeg(local, "D"));
-
                 case NEG_FLOAT:
                     return emitValue(nNeg(local, "F"));
-
                 case NEG_INT:
                     return emitValue(nNeg(local, "I"));
-
                 case NEG_LONG:
                     return emitValue(nNeg(local, "J"));
                 case INT_TO_BYTE:
                     return emitValue(nCast(local, "I", "B"));
-
                 case INT_TO_CHAR:
                     return emitValue(nCast(local, "I", "C"));
-
                 case INT_TO_DOUBLE:
                     return emitValue(nCast(local, "I", "D"));
-
                 case INT_TO_FLOAT:
                     return emitValue(nCast(local, "I", "F"));
-
                 case INT_TO_LONG:
                     return emitValue(nCast(local, "I", "J"));
-
                 case INT_TO_SHORT:
                     return emitValue(nCast(local, "I", "S"));
-
                 case FLOAT_TO_DOUBLE:
                     return emitValue(nCast(local, "F", "D"));
-
                 case FLOAT_TO_INT:
                     return emitValue(nCast(local, "F", "I"));
-
                 case FLOAT_TO_LONG:
                     return emitValue(nCast(local, "F", "J"));
-
                 case DOUBLE_TO_FLOAT:
                     return emitValue(nCast(local, "D", "F"));
-
                 case DOUBLE_TO_INT:
                     return emitValue(nCast(local, "D", "I"));
-
                 case DOUBLE_TO_LONG:
                     return emitValue(nCast(local, "D", "J"));
-
                 case LONG_TO_DOUBLE:
                     return emitValue(nCast(local, "J", "D"));
-
                 case LONG_TO_FLOAT:
                     return emitValue(nCast(local, "J", "F"));
-
                 case LONG_TO_INT:
                     return emitValue(nCast(local, "J", "I"));
 
@@ -891,23 +877,18 @@ public class Dex2IRConverter {
                     emit(nIf(Exprs
                             .nEq(local, nInt(0), TypeClass.ZIL.name), getLabel(((JumpStmtNode) insn).label)));
                     return null;
-
                 case IF_GEZ:
                     emit(nIf(Exprs.nGe(local, nInt(0), "I"), getLabel(((JumpStmtNode) insn).label)));
                     return null;
-
                 case IF_GTZ:
                     emit(nIf(Exprs.nGt(local, nInt(0), "I"), getLabel(((JumpStmtNode) insn).label)));
                     return null;
-
                 case IF_LEZ:
                     emit(nIf(Exprs.nLe(local, nInt(0), "I"), getLabel(((JumpStmtNode) insn).label)));
                     return null;
-
                 case IF_LTZ:
                     emit(nIf(Exprs.nLt(local, nInt(0), "I"), getLabel(((JumpStmtNode) insn).label)));
                     return null;
-
                 case IF_NEZ:
                     emit(nIf(Exprs
                             .nNe(local, nInt(0), TypeClass.ZIL.name), getLabel(((JumpStmtNode) insn).label)));
@@ -952,10 +933,8 @@ public class Dex2IRConverter {
                 }
                 case INSTANCE_OF:
                     return emitValue(nInstanceOf(local, ((TypeStmtNode) insn).type));
-
                 case NEW_ARRAY:
                     return emitValue(nNewArray(((TypeStmtNode) insn).type.substring(1), local));
-
                 case CHECK_CAST:
                     return emitValue(nCheckCast(local, ((TypeStmtNode) insn).type));
 
@@ -975,19 +954,15 @@ public class Dex2IRConverter {
                 case RSUB_INT_LIT8:
                 case RSUB_INT://
                     return emitValue(nSub(nInt(((Stmt2R1NNode) insn).content), local, "I"));
-
                 case MUL_INT_LIT8:
                 case MUL_INT_LIT16:
                     return emitValue(nMul(local, nInt(((Stmt2R1NNode) insn).content), "I"));
-
                 case DIV_INT_LIT16:
                 case DIV_INT_LIT8:
                     return emitValue(nDiv(local, nInt(((Stmt2R1NNode) insn).content), "I"));
-
                 case REM_INT_LIT16:
                 case REM_INT_LIT8:
                     return emitValue(nRem(local, nInt(((Stmt2R1NNode) insn).content), "I"));
-
                 case AND_INT_LIT16:
                 case AND_INT_LIT8:
                     return emitValue(nAnd(local, nInt(((Stmt2R1NNode) insn).content),
@@ -995,7 +970,6 @@ public class Dex2IRConverter {
                                     || ((Stmt2R1NNode) insn).content > 1
                                     ? "I"
                                     : TypeClass.ZI.name));
-
                 case OR_INT_LIT16:
                 case OR_INT_LIT8:
                     return emitValue(nOr(local, nInt(((Stmt2R1NNode) insn).content),
@@ -1003,7 +977,6 @@ public class Dex2IRConverter {
                                     || ((Stmt2R1NNode) insn).content > 1
                                     ? "I"
                                     : TypeClass.ZI.name));
-
                 case XOR_INT_LIT16:
                 case XOR_INT_LIT8:
                     return emitValue(nXor(local, nInt(((Stmt2R1NNode) insn).content),
@@ -1011,13 +984,10 @@ public class Dex2IRConverter {
                                     || ((Stmt2R1NNode) insn).content > 1
                                     ? "I"
                                     : TypeClass.ZI.name));
-
                 case SHL_INT_LIT8:
                     return emitValue(nShl(local, nInt(((Stmt2R1NNode) insn).content), "I"));
-
                 case SHR_INT_LIT8:
                     return emitValue(nShr(local, nInt(((Stmt2R1NNode) insn).content), "I"));
-
                 case USHR_INT_LIT8:
                     return emitValue(nUshr(local, nInt(((Stmt2R1NNode) insn).content), "I"));
                 case FILL_ARRAY_DATA:
@@ -1040,133 +1010,90 @@ public class Dex2IRConverter {
                 switch (insn.op) {
                 case AGET:
                     return emitValue(nArray(local1, local2, TypeClass.IF.name));
-
                 case AGET_BOOLEAN:
                     return emitValue(nArray(local1, local2, "Z"));
-
                 case AGET_BYTE:
                     return emitValue(nArray(local1, local2, "B"));
-
                 case AGET_CHAR:
                     return emitValue(nArray(local1, local2, "C"));
-
                 case AGET_OBJECT:
                     return emitValue(nArray(local1, local2, "L"));
-
                 case AGET_SHORT:
                     return emitValue(nArray(local1, local2, "S"));
-
                 case AGET_WIDE:
                     return emitValue(nArray(local1, local2, TypeClass.JD.name));
-
                 case CMP_LONG:
                     return emitValue(nLCmp(local1, local2));
-
                 case CMPG_DOUBLE:
                     return emitValue(nDCmpg(local1, local2));
-
                 case CMPG_FLOAT:
                     return emitValue(nFCmpg(local1, local2));
-
                 case CMPL_DOUBLE:
                     return emitValue(nDCmpl(local1, local2));
-
                 case CMPL_FLOAT:
                     return emitValue(nFCmpl(local1, local2));
-
                 case ADD_DOUBLE:
                     return emitValue(nAdd(local1, local2, "D"));
-
                 case ADD_FLOAT:
                     return emitValue(nAdd(local1, local2, "F"));
-
                 case ADD_INT:
                     return emitValue(nAdd(local1, local2, "I"));
-
                 case ADD_LONG:
                     return emitValue(nAdd(local1, local2, "J"));
-
                 case SUB_DOUBLE:
                     return emitValue(nSub(local1, local2, "D"));
-
                 case SUB_FLOAT:
                     return emitValue(nSub(local1, local2, "F"));
-
                 case SUB_INT:
                     return emitValue(nSub(local1, local2, "I"));
-
                 case SUB_LONG:
                     return emitValue(nSub(local1, local2, "J"));
-
                 case MUL_DOUBLE:
                     return emitValue(nMul(local1, local2, "D"));
-
                 case MUL_FLOAT:
                     return emitValue(nMul(local1, local2, "F"));
-
                 case MUL_INT:
                     return emitValue(nMul(local1, local2, "I"));
-
                 case MUL_LONG:
                     return emitValue(nMul(local1, local2, "J"));
-
                 case DIV_DOUBLE:
                     return emitValue(nDiv(local1, local2, "D"));
-
                 case DIV_FLOAT:
                     return emitValue(nDiv(local1, local2, "F"));
-
                 case DIV_INT:
                     return emitValue(nDiv(local1, local2, "I"));
-
                 case DIV_LONG:
                     return emitValue(nDiv(local1, local2, "J"));
-
                 case REM_DOUBLE:
                     return emitValue(nRem(local1, local2, "D"));
-
                 case REM_FLOAT:
                     return emitValue(nRem(local1, local2, "F"));
-
                 case REM_INT:
                     return emitValue(nRem(local1, local2, "I"));
-
                 case REM_LONG:
                     return emitValue(nRem(local1, local2, "J"));
-
                 case AND_INT:
                     return emitValue(nAnd(local1, local2, TypeClass.ZI.name));
-
                 case AND_LONG:
                     return emitValue(nAnd(local1, local2, "J"));
-
                 case OR_INT:
                     return emitValue(nOr(local1, local2, TypeClass.ZI.name));
-
                 case OR_LONG:
                     return emitValue(nOr(local1, local2, "J"));
-
                 case XOR_INT:
                     return emitValue(nXor(local1, local2, TypeClass.ZI.name));
-
                 case XOR_LONG:
                     return emitValue(nXor(local1, local2, "J"));
-
                 case SHL_INT:
                     return emitValue(nShl(local1, local2, "I"));
-
                 case SHL_LONG:
                     return emitValue(nShl(local1, local2, "J"));
-
                 case SHR_INT:
                     return emitValue(nShr(local1, local2, "I"));
-
                 case SHR_LONG:
                     return emitValue(nShr(local1, local2, "J"));
-
                 case USHR_INT:
                     return emitValue(nUshr(local1, local2, "I"));
-
                 case USHR_LONG:
                     return emitValue(nUshr(local1, local2, "J"));
 
@@ -1174,23 +1101,18 @@ public class Dex2IRConverter {
                     emit(nIf(Exprs
                             .nEq(local1, local2, TypeClass.ZIL.name), getLabel(((JumpStmtNode) insn).label)));
                     return null;
-
                 case IF_GE:
                     emit(nIf(Exprs.nGe(local1, local2, "I"), getLabel(((JumpStmtNode) insn).label)));
                     return null;
-
                 case IF_GT:
                     emit(nIf(Exprs.nGt(local1, local2, "I"), getLabel(((JumpStmtNode) insn).label)));
                     return null;
-
                 case IF_LE:
                     emit(nIf(Exprs.nLe(local1, local2, "I"), getLabel(((JumpStmtNode) insn).label)));
                     return null;
-
                 case IF_LT:
                     emit(nIf(Exprs.nLt(local1, local2, "I"), getLabel(((JumpStmtNode) insn).label)));
                     return null;
-
                 case IF_NE:
                     emit(nIf(Exprs
                             .nNe(local1, local2, TypeClass.ZIL.name), getLabel(((JumpStmtNode) insn).label)));
@@ -1209,97 +1131,66 @@ public class Dex2IRConverter {
 
                 case ADD_DOUBLE_2ADDR:
                     return emitValue(nAdd(local1, local2, "D"));
-
                 case ADD_FLOAT_2ADDR:
                     return emitValue(nAdd(local1, local2, "F"));
-
                 case ADD_INT_2ADDR:
                     return emitValue(nAdd(local1, local2, "I"));
-
                 case ADD_LONG_2ADDR:
                     return emitValue(nAdd(local1, local2, "J"));
-
                 case SUB_DOUBLE_2ADDR:
                     return emitValue(nSub(local1, local2, "D"));
-
                 case SUB_FLOAT_2ADDR:
                     return emitValue(nSub(local1, local2, "F"));
-
                 case SUB_INT_2ADDR:
                     return emitValue(nSub(local1, local2, "I"));
-
                 case SUB_LONG_2ADDR:
                     return emitValue(nSub(local1, local2, "J"));
-
                 case MUL_DOUBLE_2ADDR:
                     return emitValue(nMul(local1, local2, "D"));
-
                 case MUL_FLOAT_2ADDR:
                     return emitValue(nMul(local1, local2, "F"));
-
                 case MUL_INT_2ADDR:
                     return emitValue(nMul(local1, local2, "I"));
-
                 case MUL_LONG_2ADDR:
                     return emitValue(nMul(local1, local2, "J"));
-
                 case DIV_DOUBLE_2ADDR:
                     return emitValue(nDiv(local1, local2, "D"));
-
                 case DIV_FLOAT_2ADDR:
                     return emitValue(nDiv(local1, local2, "F"));
-
                 case DIV_INT_2ADDR:
                     return emitValue(nDiv(local1, local2, "I"));
-
                 case DIV_LONG_2ADDR:
                     return emitValue(nDiv(local1, local2, "J"));
-
                 case REM_DOUBLE_2ADDR:
                     return emitValue(nRem(local1, local2, "D"));
-
                 case REM_FLOAT_2ADDR:
                     return emitValue(nRem(local1, local2, "F"));
-
                 case REM_INT_2ADDR:
                     return emitValue(nRem(local1, local2, "I"));
-
                 case REM_LONG_2ADDR:
                     return emitValue(nRem(local1, local2, "J"));
-
                 case AND_INT_2ADDR:
                     return emitValue(nAnd(local1, local2, TypeClass.ZI.name));
-
                 case AND_LONG_2ADDR:
                     return emitValue(nAnd(local1, local2, "J"));
-
                 case OR_INT_2ADDR:
                     return emitValue(nOr(local1, local2, TypeClass.ZI.name));
-
                 case OR_LONG_2ADDR:
                     return emitValue(nOr(local1, local2, "J"));
-
                 case XOR_INT_2ADDR:
                     return emitValue(nXor(local1, local2, TypeClass.ZI.name));
-
                 case XOR_LONG_2ADDR:
                     return emitValue(nXor(local1, local2, "J"));
-
                 case SHL_INT_2ADDR:
                     return emitValue(nShl(local1, local2, "I"));
-
                 case SHL_LONG_2ADDR:
                     return emitValue(nShl(local1, local2, "J"));
-
                 case SHR_INT_2ADDR:
                     return emitValue(nShr(local1, local2, "I"));
-
                 case SHR_LONG_2ADDR:
                     return emitValue(nShr(local1, local2, "J"));
-
                 case USHR_INT_2ADDR:
                     return emitValue(nUshr(local1, local2, "I"));
-
                 case USHR_LONG_2ADDR:
                     return emitValue(nUshr(local1, local2, "J"));
                 default:

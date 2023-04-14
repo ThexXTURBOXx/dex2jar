@@ -7,9 +7,7 @@ import java.util.Set;
 
 public class UniqueQueue<T> extends LinkedList<T> {
 
-    private static final long serialVersionUID = 7578371020752763662L;
-
-    Set<T> set = new HashSet<>();
+    private final Set<T> set = new HashSet<>();
 
     public UniqueQueue() {
     }
@@ -23,7 +21,6 @@ public class UniqueQueue<T> extends LinkedList<T> {
             }
         }
         return result;
-
     }
 
     @Override
@@ -46,5 +43,4 @@ public class UniqueQueue<T> extends LinkedList<T> {
         set.remove(t);
         return t;
     }
-
 }

@@ -1,14 +1,18 @@
 package com.googlecode.d2j.util;
 
 import com.googlecode.d2j.DexException;
+import org.objectweb.asm.Type;
+
 import java.util.ArrayList;
 import java.util.List;
 
 public final class Types {
 
     /**
-     * @param desc a asm method desc, ex: (II)V
-     * @return a array of argument types, ex: [I,I]
+     * @param desc
+     * 		JVM type descriptor of a method, ex: (II)V
+     *
+     * @return Array of argument types, ex: [I,I]
      */
     public static String[] getParameterTypeDesc(String desc) {
 
@@ -24,8 +28,10 @@ public final class Types {
     }
 
     /**
-     * @param desc a asm method desc, ex: (II)V
-     * @return the desc of return type, ex: V
+     * @param desc
+     * 		JVM type descriptor of a method ex: (II)V
+     *
+     * @return The return type descriptor of the method, ex: V
      */
     public static String getReturnTypeDesc(String desc) {
         int x = desc.lastIndexOf(')');
@@ -89,7 +95,7 @@ public final class Types {
         return list;
     }
 
-    public static Object[] buildDexStyleSignature(String signature) {
+    public static String[] buildDexStyleSignature(String signature) {
         int rawLength = signature.length();
         ArrayList<String> pieces = new ArrayList<>(20);
 
@@ -123,11 +129,47 @@ public final class Types {
             pieces.add(signature.substring(at, endAt));
             at = endAt;
         }
-        return pieces.toArray(new Object[0]);
+        return pieces.toArray(new String[0]);
     }
 
-    private Types() {
-        throw new UnsupportedOperationException();
+    /**
+     * @param type
+     *         Type descriptor.
+     *
+     * @return Size of type in the JVM stack.
+     */
+    public static int sizeOfType(String type) {
+        switch (type.charAt(0)) {
+            case 'J':
+            case 'D':
+                return 2;
+            default:
+                return 1;
+        }
     }
 
+    /**
+     * @param types
+     *         Input array of ASM types.
+     *
+     * @return Array of descriptors.
+     */
+    public static String[] toDescArray(Type[] types) {
+        String[] ds = new String[types.length];
+        for (int i = 0; i < types.length; i++)
+            ds[i] = types[i].getDescriptor();
+        return ds;
+    }
+
+    /**
+     * @param argTypes Argument type descriptors, for a method.
+     * @return Size of all arguments combined.
+     */
+    public static int methodArgsSizeTotal(String[] argTypes) {
+        int i = 0;
+        for (String s : argTypes) {
+            i += sizeOfType(s);
+        }
+        return i;
+    }
 }

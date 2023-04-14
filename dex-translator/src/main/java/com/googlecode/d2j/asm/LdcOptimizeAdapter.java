@@ -7,23 +7,21 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
 /**
+ * LDC contents are stored in the class's constant pool.
+ * If possible, it would be ideal to inline these values into the method using
+ * instructions that declare their values inline when possible.
+ *
  * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
- * @version $Rev$
  */
 public class LdcOptimizeAdapter extends MethodVisitor implements Opcodes {
 
     /**
-     *
+     * @param mv Visitor of method to optimize.
      */
     public LdcOptimizeAdapter(MethodVisitor mv) {
         super(Constants.ASM_VERSION, mv);
     }
 
-    /*
-     * (non-Javadoc)
-     *
-     * @see org.objectweb.asm.MethodAdapter#visitLdcInsn(java.lang.Object)
-     */
     @Override
     public void visitLdcInsn(Object cst) {
         if (cst == null) {
@@ -101,10 +99,22 @@ public class LdcOptimizeAdapter extends MethodVisitor implements Opcodes {
         }
     }
 
+    /**
+     * @param mv
+     * 		Visitor of method to optimize.
+     *
+     * @return Optimizing visitor.
+     */
     public static MethodVisitor wrap(MethodVisitor mv) {
         return mv == null ? null : new LdcOptimizeAdapter(mv);
     }
 
+    /**
+     * @param cv
+     * 		Class with methods to optimize.
+     *
+     * @return Optimizing visitor.
+     */
     public static ClassVisitor wrap(ClassVisitor cv) {
         return cv == null ? null : new ClassVisitor(Constants.ASM_VERSION, cv) {
             @Override
@@ -114,5 +124,4 @@ public class LdcOptimizeAdapter extends MethodVisitor implements Opcodes {
             }
         };
     }
-
 }

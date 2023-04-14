@@ -9,69 +9,111 @@ import com.googlecode.dex2jar.ir.expr.Exprs;
 import com.googlecode.dex2jar.ir.expr.InvokeCustomExpr;
 import com.googlecode.dex2jar.ir.expr.Local;
 import com.googlecode.dex2jar.ir.expr.NewMutiArrayExpr;
-import com.googlecode.dex2jar.ir.stmt.AssignStmt;
-import com.googlecode.dex2jar.ir.stmt.LabelStmt;
-import com.googlecode.dex2jar.ir.stmt.Stmt;
-import com.googlecode.dex2jar.ir.stmt.StmtList;
-import com.googlecode.dex2jar.ir.stmt.Stmts;
+import com.googlecode.dex2jar.ir.stmt.*;
+import com.googlecode.dex2jar.ir.ts.UniqueQueue;
 import com.googlecode.dex2jar.tools.Constants;
-
-import java.util.*;
-
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.tree.AbstractInsnNode;
-import org.objectweb.asm.tree.FieldInsnNode;
-import org.objectweb.asm.tree.IincInsnNode;
-import org.objectweb.asm.tree.InsnList;
-import org.objectweb.asm.tree.IntInsnNode;
-import org.objectweb.asm.tree.InvokeDynamicInsnNode;
-import org.objectweb.asm.tree.JumpInsnNode;
-import org.objectweb.asm.tree.LabelNode;
-import org.objectweb.asm.tree.LdcInsnNode;
-import org.objectweb.asm.tree.LookupSwitchInsnNode;
-import org.objectweb.asm.tree.MethodInsnNode;
-import org.objectweb.asm.tree.MethodNode;
-import org.objectweb.asm.tree.MultiANewArrayInsnNode;
-import org.objectweb.asm.tree.TableSwitchInsnNode;
-import org.objectweb.asm.tree.TryCatchBlockNode;
-import org.objectweb.asm.tree.TypeInsnNode;
+import org.objectweb.asm.commons.JSRInlinerAdapter;
+import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.AnalyzerException;
 import org.objectweb.asm.tree.analysis.Frame;
 import org.objectweb.asm.tree.analysis.Interpreter;
 import org.objectweb.asm.tree.analysis.Value;
 
+import java.util.*;
+
+import static com.googlecode.d2j.util.Types.*;
 import static org.objectweb.asm.Opcodes.*;
 
+/**
+ * Converter for Java <i>({@link MethodNode})</i> into the intermediate value type {@link IrMethod}.
+ */
 public final class J2IRConverter {
 
-    Map<Label, LabelStmt> map = new IdentityHashMap<>();
+    // Inputs
 
-    String owner;
+    private final String owner;
+    private final MethodNode methodNode;
+    private final InsnList insnList;
+    private final Map<LabelNode, String> handlerToExceptionType = new IdentityHashMap<>();
 
-    InsnList insnList;
+    // Analysis
 
-    int[] parentCount;
+    /**
+     * Represents a mapping of indices in the {@link InsnList} to the number of incoming control flow edges.
+     * <pre>{@code
+     *  parentCount[0] == 1; // The start of the method always has a incoming control flow edge
+     *  parentCount[?] == ?; // Any index in the method has a variable number of control flow edges
+     * }</pre>
+     * If you have the given code:
+     * <pre>{@code
+     * A:                              // 0
+     *  GETFIELD something.field I     // 1
+     *  IFEQ B                         // 2
+     *    NOP                          // 3
+     * B:                              // 4
+     *  RETURN                         // 5
+     * }</pre>
+     * Then the output will be: {@code [ 1, 1, 1, 1, 2, 1 ]}
+     * <br>
+     * All instructions that do not force a path in control flow naturally flow into the next instruction.
+     * This is why all items seen here have at least one parent. The label {@code B:} has two parents because
+     * of the fall-through of the prior instruction, and the jump destination of the earlier {@code IFEQ}.
+     * <p/>
+     * Given this information you can assume the following for any given valid method code:
+     * <ul>
+     *     <li>{@code parentCount[0] == 1}</li>
+     *     <li>{@code parentCount[N] == 1} where N represents any non-label instruction</li>
+     *     <li>{@code parentCount[N] >= 1} where N represents any label instruction</li>
+     *     <li>{@code parentCount[N] == 0} where N is an instruction that is never visited <i>(Dead code)</i></li>
+     * </ul>
+     */
+    private int[] parentCount;
 
-    JvmFrame[] frames;
+    /**
+     * Represents a mapping of indices in the {@link InsnList} to the state of the stack and local variable table.
+     * These frames are populated by the {@link #createInterpreter() interpreter} when visited in
+     * {@link #dfs(BitSet[], BitSet, BitSet, Interpreter)}.
+     * <ul>
+     *     <li>{@code frames[0]} will have an empty stack, and contain only variables declared as method parameters
+     *     and the implicit 'this' if the method is non-static</li>
+     *     <li>{@code frames[N]} will be {@code null} where N is an instruction that is never visited
+     *     <i>(Dead code)</i></li>
+     * </ul>
+     */
+    private JvmFrame[] frames;
 
-    MethodNode methodNode;
+    // Outputs
 
-    IrMethod target;
-
-    List<Stmt>[] emitStmts;
-
-    List<Stmt> preEmit = new ArrayList<>();
-
-    List<Stmt> currentEmit;
+    private IrMethod target;
+    private List<Stmt>[] emitStmts;
+    private List<Stmt> currentEmit;
+    private final List<Stmt> preEmit = new ArrayList<>();
+    private final Map<Label, LabelStmt> labelStmtMap = new IdentityHashMap<>();
 
     private J2IRConverter(String owner, MethodNode methodNode) {
         this.owner = owner;
         this.methodNode = methodNode;
+        insnList = methodNode.instructions;
     }
 
+    /**
+     * @param owner
+     *         Internal name of the class declaring the given method.
+     * @param methodNode
+     *         The method to convert.
+     *
+     * @return Converted IR method.
+     *
+     * @throws AnalyzerException
+     *         When the code within the given method could not be interpreted.
+     * @throws DeprecatedInstructionException
+     *         When the code contains unsupported deprecated instructions such as JSR/RET.
+     *         Please use {@link JSRInlinerAdapter} before converting methods.
+     */
     public static IrMethod convert(String owner, MethodNode methodNode) throws AnalyzerException {
         return new J2IRConverter(owner, methodNode).convert0();
     }
@@ -87,9 +129,6 @@ public final class J2IRConverter {
         if (methodNode.instructions.size() == 0)
             return target;
 
-        // Create instructions list. Will store the IR instructions.
-        insnList = methodNode.instructions;
-
         // Create an array tracking how many incoming edges to the instruction exist.
         parentCount = createInitialParentCounts(insnList);
 
@@ -99,46 +138,21 @@ public final class J2IRConverter {
         //  - set[N] == 1: Insn flows into N
         BitSet[] exBranch = new BitSet[insnList.size()];
 
-        // Create an array for exception handlers.
+        // Create a bitset for exception handlers.
         // Each entry in the bitset is such that:
         //  - set[N] == 0: Instruction at N is NOT an exception handler start
         //  - set[N] == 1: Instruction at N is a Label and is an exception handler start
         BitSet handlers = new BitSet(insnList.size());
-        if (methodNode.tryCatchBlocks != null) {
-            for (TryCatchBlockNode tcb : methodNode.tryCatchBlocks) {
-                target.traps.add(new Trap(getLabel(tcb.start), getLabel(tcb.end),
-                        new LabelStmt[]{getLabel(tcb.handler)},
-                        new String[]{tcb.type == null ? null : Type.getObjectType(tcb.type).getDescriptor()}));
-                int handlerIdx = insnList.indexOf(tcb.handler);
-                handlers.set(handlerIdx);
-
-                // Iterate over all instructions contained in the try { ... } range,
-                // adding a control flow branch from each instruction to the catch { ... } handler block.
-                int itemCountInBlock = 0;
-                for (AbstractInsnNode insn = tcb.start.getNext(); insn != tcb.end; insn = insn.getNext()) {
-                    itemCountInBlock++;
-                    int insnIndex = insnList.indexOf(insn);
-                    BitSet ex = exBranch[insnIndex];
-                    if (ex == null) {
-                        ex = new BitSet(insnList.size());
-                        exBranch[insnIndex] = ex;
-                    }
-                    ex.set(handlerIdx);
-                }
-
-                // Increment number of incoming edges for the handler index.
-                parentCount[handlerIdx] += itemCountInBlock;
-            }
-        }
+        initExceptionHandlers(handlers, exBranch);
 
         // Create an interpreter to analyze the stack and local variable table contents
         // for each index in the instructions list.
-        Interpreter<JvmValue> interpreter = buildInterpreter();
+        Interpreter<JvmValue> interpreter = createInterpreter();
 
         // Array of frames to store results of the interpreters visitation of the method code.
         frames = new JvmFrame[insnList.size()];
 
-        // ???
+        // Array of statements mapped from the input instructions.
         emitStmts = new ArrayList[insnList.size()];
 
         // Bitset tracking which instructions were visited (any set[N] == 0 is dead code)
@@ -173,7 +187,7 @@ public final class J2IRConverter {
         emitStmts = null;
 
         // ???
-        Queue<JvmValue> queue = new LinkedList<>();
+        Queue<JvmValue> queue = new UniqueQueue<>();
         for (int i = 0; i < frames.length; i++) {
             JvmFrame frame = frames[i];
             if (parentCount[i] > 1 && frame != null && access.get(i)) {
@@ -191,7 +205,7 @@ public final class J2IRConverter {
         // ???
         while (!queue.isEmpty()) {
             JvmValue value = queue.poll();
-            getLocal(value);
+            getLocal(value); // Force population of IR values for the given JVM value.
             if (value.parent != null) {
                 if (value.parent.local == null) {
                     queue.add(value.parent);
@@ -212,15 +226,16 @@ public final class J2IRConverter {
         for (int i = 0; i < frames.length; i++) {
             JvmFrame frame = frames[i];
             if (parentCount[i] > 1 && frame != null && access.get(i)) {
-                AbstractInsnNode p = insnList.get(i);
-                LabelStmt labelStmt = getLabel((LabelNode) p);
+                LabelNode label = (LabelNode) insnList.get(i);
+                LabelStmt labelStmt = getLabel(label);
                 List<AssignStmt> phis = new ArrayList<>();
                 for (int j = 0; j < frame.getLocals(); j++) {
-                    JvmValue v = frame.getLocal(j);
-                    addPhi(v, phiValues, phis);
+                    JvmValue local = frame.getLocal(j);
+                    addPhi(local, phiValues, phis);
                 }
                 for (int j = 0; j < frame.getStackSize(); j++) {
-                    addPhi(frame.getStack(j), phiValues, phis);
+                    JvmValue stack = frame.getStack(j);
+                    addPhi(stack, phiValues, phis);
                 }
                 labelStmt.phis = phis;
                 phiLabels.add(labelStmt);
@@ -235,8 +250,50 @@ public final class J2IRConverter {
     }
 
     /**
+     * Populates the handlers bitset, where each set bit represents an offset in the {@link #insnList}
+     * that denotes the start range of an exception handler.
+     *
+     * @param handlers
+     *         Handler bitset to populate.
+     * @param exBranch
+     *         Control flow destination edges.
+     */
+    private void initExceptionHandlers(BitSet handlers, BitSet[] exBranch) {
+        if (methodNode.tryCatchBlocks != null) {
+            for (TryCatchBlockNode tcb : methodNode.tryCatchBlocks) {
+                target.traps.add(new Trap(getLabel(tcb.start), getLabel(tcb.end),
+                        new LabelStmt[]{getLabel(tcb.handler)},
+                        new String[]{tcb.type == null ? null : Type.getObjectType(tcb.type).getDescriptor()}));
+                int handlerIdx = insnList.indexOf(tcb.handler);
+                handlers.set(handlerIdx);
+
+                // Record the exception type at the given index.
+                // If there are multiple exceptions at the given handler index, we will squash the type into something common.
+                handlerToExceptionType.merge(tcb.handler, tcb.type, (newType, currentType) -> "java/lang/Throwable");
+
+                // Iterate over all instructions contained in the try { ... } range,
+                // adding a control flow branch from each instruction to the catch { ... } handler block.
+                int itemCountInBlock = 0;
+                for (AbstractInsnNode insn = tcb.start.getNext(); insn != tcb.end; insn = insn.getNext()) {
+                    itemCountInBlock++;
+                    int insnIndex = insnList.indexOf(insn);
+                    BitSet ex = exBranch[insnIndex];
+                    if (ex == null) {
+                        ex = new BitSet(insnList.size());
+                        exBranch[insnIndex] = ex;
+                    }
+                    ex.set(handlerIdx);
+                }
+
+                // Increment number of incoming edges for the handler index.
+                parentCount[handlerIdx] += itemCountInBlock;
+            }
+        }
+    }
+
+    /**
      * @param stmt
-     * 		Statement to append to {@link #currentEmit}
+     *         Statement to append to {@link #currentEmit}
      */
     private void emit(Stmt stmt) {
         currentEmit.add(stmt);
@@ -283,7 +340,7 @@ public final class J2IRConverter {
 
     /**
      * @param insnList
-     * 		Instructions to operate off of.
+     *         Instructions to operate off of.
      *
      * @return Array containing a mapping of instruction offsets, to the number of inbound control flow edges.
      */
@@ -336,9 +393,9 @@ public final class J2IRConverter {
 
     /**
      * @param owner
-     * 		Internal name of class defining the method.
+     *         Internal name of class defining the method.
      * @param source
-     * 		The method declaration to pull information from.
+     *         The method declaration to pull information from.
      *
      * @return Basic IR method with declaration details mirroring those from the provided {@code source} method.
      */
@@ -361,16 +418,16 @@ public final class J2IRConverter {
      * Visits the {@link #methodNode}'s {@link #insnList instructions} with the given interpreter.
      *
      * @param exBranch
-     * 		Array mapping instruction offsets to bitsets representing which instructions are potential branch targets.
+     *         Array mapping instruction offsets to bitsets representing which instructions are potential branch targets.
      * @param handlers
-     * 		Bitset representing which instructions are catch { ... } block handler start positions.
+     *         Bitset representing which instructions are catch { ... } block handler start positions.
      * @param access
-     * 		Bitset tracking which instructions were visited <i>(any {@code set[N] == 0} is dead code)</i>
+     *         Bitset tracking which instructions were visited <i>(any {@code set[N] == 0} is dead code)</i>
      * @param interpreter
-     * 		Interpreter instance to handle updating frame states, and {@link #currentEmit statement emission}.
+     *         Interpreter instance to handle updating frame states, and {@link #currentEmit statement emission}.
      *
      * @throws AnalyzerException
-     * 		When something in the method code breaks analysis.
+     *         When something in the method code breaks analysis.
      */
     private void dfs(BitSet[] exBranch, BitSet handlers, BitSet access,
                      Interpreter<JvmValue> interpreter) throws AnalyzerException {
@@ -414,15 +471,15 @@ public final class J2IRConverter {
             // Handle emitting statements for labels
             if (insn.getType() == AbstractInsnNode.LABEL) {
                 // Emit label mappings
-                emit(getLabel((LabelNode) insn));
+                LabelNode labelNode = (LabelNode) insn;
+                emit(getLabel(labelNode));
 
                 // Emit handling for catch { ... } block ranges.
                 // These will replace the stack with a 'java/lang/Throwable' or subtype.
                 if (handlers.get(index)) {
-                    // TODO: Properly track the exception type instead of falling-back to throwable.
-                    //       This can lead to behavioral changes as-is.
+                    String exType = handlerToExceptionType.getOrDefault(labelNode, "java/lang/Throwable");
                     Local ex = newLocal();
-                    emit(Stmts.nIdentity(ex, Exprs.nExceptionRef("Ljava/lang/Throwable;")));
+                    emit(Stmts.nIdentity(ex, Exprs.nExceptionRef("L" + exType + ";")));
                     frame.clearStack();
                     frame.push(new JvmValue(1, ex));
                 }
@@ -491,7 +548,7 @@ public final class J2IRConverter {
      * at the given position in the {@link #insnList}.
      *
      * @param index
-     * 		Current instruction index to visit.
+     *         Current instruction index to visit.
      */
     private void setCurrentEmit(int index) {
         List<Stmt> stmts = emitStmts[index];
@@ -505,7 +562,7 @@ public final class J2IRConverter {
     /**
      * @return Interpreter that also emits {@link Stmt} values as code is interpreted.
      */
-    private Interpreter<JvmValue> buildInterpreter() {
+    private Interpreter<JvmValue> createInterpreter() {
         return new Interpreter<JvmValue>(Constants.ASM_VERSION) {
             private JvmValue emitValue(int size, com.googlecode.dex2jar.ir.expr.Value value) {
                 Local local = newLocal();
@@ -522,65 +579,65 @@ public final class J2IRConverter {
             public JvmValue newOperation(AbstractInsnNode insn) {
                 int opcode = insn.getOpcode();
                 switch (opcode) {
-                case ACONST_NULL:
-                    return emitValue(1, Exprs.nNull());
-                case ICONST_M1:
-                case ICONST_0:
-                case ICONST_1:
-                case ICONST_2:
-                case ICONST_3:
-                case ICONST_4:
-                case ICONST_5:
-                    return emitValue(1, Exprs.nInt(opcode - ICONST_0));
-                case LCONST_0:
-                case LCONST_1:
-                    return emitValue(2, Exprs.nLong(opcode - LCONST_0));
-                case FCONST_0:
-                case FCONST_1:
-                case FCONST_2:
-                    return emitValue(1, Exprs.nFloat(opcode - FCONST_0));
-                case DCONST_0:
-                case DCONST_1:
-                    return emitValue(2, Exprs.nDouble(opcode - DCONST_0));
-                case BIPUSH:
-                case SIPUSH:
-                    return emitValue(1, Exprs.nInt(((IntInsnNode) insn).operand));
-                case LDC:
-                    Object cst = ((LdcInsnNode) insn).cst;
-                    if (cst instanceof Integer) {
-                        return emitValue(1, Exprs.nInt((Integer) cst));
-                    } else if (cst instanceof Float) {
-                        return emitValue(1, Exprs.nFloat((Float) cst));
-                    } else if (cst instanceof Long) {
-                        return emitValue(2, Exprs.nLong((Long) cst));
-                    } else if (cst instanceof Double) {
-                        return emitValue(2, Exprs.nDouble((Double) cst));
-                    } else if (cst instanceof String) {
-                        return emitValue(1, Exprs.nString((String) cst));
-                    } else if (cst instanceof Type) {
-                        Type type = (Type) cst;
-                        int sort = type.getSort();
-                        if (sort == Type.OBJECT || sort == Type.ARRAY) {
-                            return emitValue(1, Exprs.nType(type.getDescriptor()));
-                        } else if (sort == Type.METHOD) {
+                    case ACONST_NULL:
+                        return emitValue(1, Exprs.nNull());
+                    case ICONST_M1:
+                    case ICONST_0:
+                    case ICONST_1:
+                    case ICONST_2:
+                    case ICONST_3:
+                    case ICONST_4:
+                    case ICONST_5:
+                        return emitValue(1, Exprs.nInt(opcode - ICONST_0));
+                    case LCONST_0:
+                    case LCONST_1:
+                        return emitValue(2, Exprs.nLong(opcode - LCONST_0));
+                    case FCONST_0:
+                    case FCONST_1:
+                    case FCONST_2:
+                        return emitValue(1, Exprs.nFloat(opcode - FCONST_0));
+                    case DCONST_0:
+                    case DCONST_1:
+                        return emitValue(2, Exprs.nDouble(opcode - DCONST_0));
+                    case BIPUSH:
+                    case SIPUSH:
+                        return emitValue(1, Exprs.nInt(((IntInsnNode) insn).operand));
+                    case LDC:
+                        Object cst = ((LdcInsnNode) insn).cst;
+                        if (cst instanceof Integer) {
+                            return emitValue(1, Exprs.nInt((Integer) cst));
+                        } else if (cst instanceof Float) {
+                            return emitValue(1, Exprs.nFloat((Float) cst));
+                        } else if (cst instanceof Long) {
+                            return emitValue(2, Exprs.nLong((Long) cst));
+                        } else if (cst instanceof Double) {
+                            return emitValue(2, Exprs.nDouble((Double) cst));
+                        } else if (cst instanceof String) {
+                            return emitValue(1, Exprs.nString((String) cst));
+                        } else if (cst instanceof Type) {
+                            Type type = (Type) cst;
+                            int sort = type.getSort();
+                            if (sort == Type.OBJECT || sort == Type.ARRAY) {
+                                return emitValue(1, Exprs.nType(type.getDescriptor()));
+                            } else if (sort == Type.METHOD) {
+                                throw new UnsupportedOperationException("Not supported yet.");
+                            } else {
+                                throw new IllegalArgumentException("Illegal LDC constant " + cst);
+                            }
+                        } else if (cst instanceof Handle) {
                             throw new UnsupportedOperationException("Not supported yet.");
                         } else {
                             throw new IllegalArgumentException("Illegal LDC constant " + cst);
                         }
-                    } else if (cst instanceof Handle) {
-                        throw new UnsupportedOperationException("Not supported yet.");
-                    } else {
-                        throw new IllegalArgumentException("Illegal LDC constant " + cst);
-                    }
-                case GETSTATIC:
-                    FieldInsnNode fin = (FieldInsnNode) insn;
-                    return emitValue(Type.getType(fin.desc).getSize(), Exprs.nStaticField("L" + fin.owner + ";", fin.name,
-                            fin.desc));
-                case NEW:
-                    return emitValue(1, Exprs.nNew("L" + ((TypeInsnNode) insn).desc + ";"));
-                default:
-                    String location = owner + "." + methodNode.name + methodNode.desc;
-                    throw new Error("Unsupported instruction in '" + location + "': " + opcode);
+                    case GETSTATIC:
+                        FieldInsnNode fin = (FieldInsnNode) insn;
+                        return emitValue(Type.getType(fin.desc).getSize(), Exprs.nStaticField("L" + fin.owner + ";", fin.name,
+                                fin.desc));
+                    case NEW:
+                        return emitValue(1, Exprs.nNew("L" + ((TypeInsnNode) insn).desc + ";"));
+                    default:
+                        String location = owner + "." + methodNode.name + methodNode.desc;
+                        throw new Error("Unsupported instruction in '" + location + "': " + opcode);
                 }
             }
 
@@ -594,162 +651,162 @@ public final class J2IRConverter {
                 Local local = value0 == null ? null : getLocal(value0);
                 int opcode = insn.getOpcode();
                 switch (opcode) {
-                case INEG:
-                    return emitValue(1, Exprs.nNeg(local, "I"));
-                case IINC:
-                    return emitValue(1, Exprs.nAdd(local, Exprs.nInt(((IincInsnNode) insn).incr), "I"));
-                case L2I:
-                    return emitValue(1, Exprs.nCast(local, "J", "I"));
-                case F2I:
-                    return emitValue(1, Exprs.nCast(local, "F", "I"));
-                case D2I:
-                    return emitValue(1, Exprs.nCast(local, "D", "I"));
-                case I2B:
-                    return emitValue(1, Exprs.nCast(local, "I", "B"));
-                case I2C:
-                    return emitValue(1, Exprs.nCast(local, "I", "C"));
-                case I2S:
-                    return emitValue(1, Exprs.nCast(local, "I", "S"));
-                case FNEG:
-                    return emitValue(1, Exprs.nNeg(local, "F"));
-                case I2F:
-                    return emitValue(1, Exprs.nCast(local, "I", "F"));
-                case L2F:
-                    return emitValue(1, Exprs.nCast(local, "J", "F"));
-                case D2F:
-                    return emitValue(1, Exprs.nCast(local, "D", "F"));
-                case LNEG:
-                    return emitValue(2, Exprs.nNeg(local, "J"));
-                case I2L:
-                    return emitValue(2, Exprs.nCast(local, "I", "J"));
-                case F2L:
-                    return emitValue(2, Exprs.nCast(local, "F", "J"));
-                case D2L:
-                    return emitValue(2, Exprs.nCast(local, "D", "J"));
-                case DNEG:
-                    return emitValue(2, Exprs.nNeg(local, "D"));
-                case I2D:
-                    return emitValue(2, Exprs.nCast(local, "I", "D"));
-                case L2D:
-                    return emitValue(2, Exprs.nCast(local, "J", "D"));
-                case F2D:
-                    return emitValue(2, Exprs.nCast(local, "F", "D"));
-                case IFEQ:
-                    emit(Stmts.nIf(Exprs.nEq(local, Exprs.nInt(0), "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IFNE:
-                    emit(Stmts.nIf(Exprs.nNe(local, Exprs.nInt(0), "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IFLT:
-                    emit(Stmts.nIf(Exprs.nLt(local, Exprs.nInt(0), "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IFGE:
-                    emit(Stmts.nIf(Exprs.nGe(local, Exprs.nInt(0), "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IFGT:
-                    emit(Stmts.nIf(Exprs.nGt(local, Exprs.nInt(0), "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IFLE:
-                    emit(Stmts.nIf(Exprs.nLe(local, Exprs.nInt(0), "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case TABLESWITCH: {
-                    TableSwitchInsnNode ts = (TableSwitchInsnNode) insn;
-                    LabelStmt[] targets = new LabelStmt[ts.labels.size()];
-                    for (int i = 0; i < ts.labels.size(); i++) {
-                        targets[i] = getLabel(ts.labels.get(i));
+                    case INEG:
+                        return emitValue(1, Exprs.nNeg(local, "I"));
+                    case IINC:
+                        return emitValue(1, Exprs.nAdd(local, Exprs.nInt(((IincInsnNode) insn).incr), "I"));
+                    case L2I:
+                        return emitValue(1, Exprs.nCast(local, "J", "I"));
+                    case F2I:
+                        return emitValue(1, Exprs.nCast(local, "F", "I"));
+                    case D2I:
+                        return emitValue(1, Exprs.nCast(local, "D", "I"));
+                    case I2B:
+                        return emitValue(1, Exprs.nCast(local, "I", "B"));
+                    case I2C:
+                        return emitValue(1, Exprs.nCast(local, "I", "C"));
+                    case I2S:
+                        return emitValue(1, Exprs.nCast(local, "I", "S"));
+                    case FNEG:
+                        return emitValue(1, Exprs.nNeg(local, "F"));
+                    case I2F:
+                        return emitValue(1, Exprs.nCast(local, "I", "F"));
+                    case L2F:
+                        return emitValue(1, Exprs.nCast(local, "J", "F"));
+                    case D2F:
+                        return emitValue(1, Exprs.nCast(local, "D", "F"));
+                    case LNEG:
+                        return emitValue(2, Exprs.nNeg(local, "J"));
+                    case I2L:
+                        return emitValue(2, Exprs.nCast(local, "I", "J"));
+                    case F2L:
+                        return emitValue(2, Exprs.nCast(local, "F", "J"));
+                    case D2L:
+                        return emitValue(2, Exprs.nCast(local, "D", "J"));
+                    case DNEG:
+                        return emitValue(2, Exprs.nNeg(local, "D"));
+                    case I2D:
+                        return emitValue(2, Exprs.nCast(local, "I", "D"));
+                    case L2D:
+                        return emitValue(2, Exprs.nCast(local, "J", "D"));
+                    case F2D:
+                        return emitValue(2, Exprs.nCast(local, "F", "D"));
+                    case IFEQ:
+                        emit(Stmts.nIf(Exprs.nEq(local, Exprs.nInt(0), "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IFNE:
+                        emit(Stmts.nIf(Exprs.nNe(local, Exprs.nInt(0), "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IFLT:
+                        emit(Stmts.nIf(Exprs.nLt(local, Exprs.nInt(0), "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IFGE:
+                        emit(Stmts.nIf(Exprs.nGe(local, Exprs.nInt(0), "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IFGT:
+                        emit(Stmts.nIf(Exprs.nGt(local, Exprs.nInt(0), "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IFLE:
+                        emit(Stmts.nIf(Exprs.nLe(local, Exprs.nInt(0), "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case TABLESWITCH: {
+                        TableSwitchInsnNode ts = (TableSwitchInsnNode) insn;
+                        LabelStmt[] targets = new LabelStmt[ts.labels.size()];
+                        for (int i = 0; i < ts.labels.size(); i++) {
+                            targets[i] = getLabel(ts.labels.get(i));
+                        }
+                        emit(Stmts.nTableSwitch(local, ts.min, targets, getLabel(ts.dflt)));
+                        return null;
                     }
-                    emit(Stmts.nTableSwitch(local, ts.min, targets, getLabel(ts.dflt)));
-                    return null;
-                }
-                case LOOKUPSWITCH: {
-                    LookupSwitchInsnNode ls = (LookupSwitchInsnNode) insn;
-                    LabelStmt[] targets = new LabelStmt[ls.labels.size()];
-                    int[] lookupValues = new int[ls.labels.size()];
-                    for (int i = 0; i < ls.labels.size(); i++) {
-                        targets[i] = getLabel(ls.labels.get(i));
-                        lookupValues[i] = ls.keys.get(i);
+                    case LOOKUPSWITCH: {
+                        LookupSwitchInsnNode ls = (LookupSwitchInsnNode) insn;
+                        LabelStmt[] targets = new LabelStmt[ls.labels.size()];
+                        int[] lookupValues = new int[ls.labels.size()];
+                        for (int i = 0; i < ls.labels.size(); i++) {
+                            targets[i] = getLabel(ls.labels.get(i));
+                            lookupValues[i] = ls.keys.get(i);
+                        }
+                        emit(Stmts.nLookupSwitch(local, lookupValues, targets, getLabel(ls.dflt)));
+                        return null;
                     }
-                    emit(Stmts.nLookupSwitch(local, lookupValues, targets, getLabel(ls.dflt)));
-                    return null;
-                }
-                case IRETURN:
-                case LRETURN:
-                case FRETURN:
-                case DRETURN:
-                case ARETURN:
-                    // skip, move to returnOperation
-                    return null;
-                case PUTSTATIC: {
-                    FieldInsnNode fin = (FieldInsnNode) insn;
-                    emit(Stmts.nAssign(Exprs.nStaticField("L" + fin.owner + ";", fin.name, fin.desc), local));
-                    return null;
-                }
-                case GETFIELD: {
-                    FieldInsnNode fin = (FieldInsnNode) insn;
-                    Type fieldType = Type.getType(fin.desc);
-                    return emitValue(fieldType.getSize(), Exprs.nField(local, "L" + fin.owner + ";", fin.name, fin.desc));
-                }
-                case NEWARRAY:
-                    switch (((IntInsnNode) insn).operand) {
-                    case T_BOOLEAN:
-                        return emitValue(1, Exprs.nNewArray("Z", local));
-                    case T_CHAR:
-                        return emitValue(1, Exprs.nNewArray("C", local));
-                    case T_BYTE:
-                        return emitValue(1, Exprs.nNewArray("B", local));
-                    case T_SHORT:
-                        return emitValue(1, Exprs.nNewArray("S", local));
-                    case T_INT:
-                        return emitValue(1, Exprs.nNewArray("I", local));
-                    case T_FLOAT:
-                        return emitValue(1, Exprs.nNewArray("F", local));
-                    case T_DOUBLE:
-                        return emitValue(1, Exprs.nNewArray("D", local));
-                    case T_LONG:
-                        return emitValue(1, Exprs.nNewArray("J", local));
+                    case IRETURN:
+                    case LRETURN:
+                    case FRETURN:
+                    case DRETURN:
+                    case ARETURN:
+                        // skip, move to returnOperation
+                        return null;
+                    case PUTSTATIC: {
+                        FieldInsnNode fin = (FieldInsnNode) insn;
+                        emit(Stmts.nAssign(Exprs.nStaticField("L" + fin.owner + ";", fin.name, fin.desc), local));
+                        return null;
+                    }
+                    case GETFIELD: {
+                        FieldInsnNode fin = (FieldInsnNode) insn;
+                        Type fieldType = Type.getType(fin.desc);
+                        return emitValue(fieldType.getSize(), Exprs.nField(local, "L" + fin.owner + ";", fin.name, fin.desc));
+                    }
+                    case NEWARRAY:
+                        switch (((IntInsnNode) insn).operand) {
+                            case T_BOOLEAN:
+                                return emitValue(1, Exprs.nNewArray("Z", local));
+                            case T_CHAR:
+                                return emitValue(1, Exprs.nNewArray("C", local));
+                            case T_BYTE:
+                                return emitValue(1, Exprs.nNewArray("B", local));
+                            case T_SHORT:
+                                return emitValue(1, Exprs.nNewArray("S", local));
+                            case T_INT:
+                                return emitValue(1, Exprs.nNewArray("I", local));
+                            case T_FLOAT:
+                                return emitValue(1, Exprs.nNewArray("F", local));
+                            case T_DOUBLE:
+                                return emitValue(1, Exprs.nNewArray("D", local));
+                            case T_LONG:
+                                return emitValue(1, Exprs.nNewArray("J", local));
+                            default:
+                                throw new AnalyzerException(insn, "Invalid array type");
+                        }
+                    case ANEWARRAY:
+                        String desc = "L" + ((TypeInsnNode) insn).desc + ";";
+                        return emitValue(1, Exprs.nNewArray(desc, local));
+                    case ARRAYLENGTH:
+                        return emitValue(1, Exprs.nLength(local));
+                    case ATHROW:
+                        emit(Stmts.nThrow(local));
+                        return null;
+                    case CHECKCAST:
+                        String orgDesc = ((TypeInsnNode) insn).desc;
+                        desc = orgDesc.startsWith("[") ? orgDesc : ("L" + orgDesc + ";");
+                        return emitValue(1, Exprs.nCheckCast(local, desc));
+                    case INSTANCEOF:
+                        return emitValue(1, Exprs.nInstanceOf(local, "L" + ((TypeInsnNode) insn).desc + ";"));
+                    case MONITORENTER:
+                        emit(Stmts.nLock(local));
+                        return null;
+                    case MONITOREXIT:
+                        emit(Stmts.nUnLock(local));
+                        return null;
+                    case IFNULL:
+                        emit(Stmts.nIf(Exprs.nEq(local, Exprs.nNull(), "L"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IFNONNULL:
+                        emit(Stmts.nIf(Exprs.nNe(local, Exprs.nNull(), "L"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case GOTO: // special case
+                        emit(Stmts.nGoto(getLabel(((JumpInsnNode) insn).label)));
+                        return null;
                     default:
-                        throw new AnalyzerException(insn, "Invalid array type");
-                    }
-                case ANEWARRAY:
-                    String desc = "L" + ((TypeInsnNode) insn).desc + ";";
-                    return emitValue(1, Exprs.nNewArray(desc, local));
-                case ARRAYLENGTH:
-                    return emitValue(1, Exprs.nLength(local));
-                case ATHROW:
-                    emit(Stmts.nThrow(local));
-                    return null;
-                case CHECKCAST:
-                    String orgDesc = ((TypeInsnNode) insn).desc;
-                    desc = orgDesc.startsWith("[") ? orgDesc : ("L" + orgDesc + ";");
-                    return emitValue(1, Exprs.nCheckCast(local, desc));
-                case INSTANCEOF:
-                    return emitValue(1, Exprs.nInstanceOf(local, "L" + ((TypeInsnNode) insn).desc + ";"));
-                case MONITORENTER:
-                    emit(Stmts.nLock(local));
-                    return null;
-                case MONITOREXIT:
-                    emit(Stmts.nUnLock(local));
-                    return null;
-                case IFNULL:
-                    emit(Stmts.nIf(Exprs.nEq(local, Exprs.nNull(), "L"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IFNONNULL:
-                    emit(Stmts.nIf(Exprs.nNe(local, Exprs.nNull(), "L"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case GOTO: // special case
-                    emit(Stmts.nGoto(getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                default:
-                    String location = owner + "." + methodNode.name + methodNode.desc;
-                    throw new Error("Unsupported instruction in '" + location + "': " + opcode);
+                        String location = owner + "." + methodNode.name + methodNode.desc;
+                        throw new Error("Unsupported instruction in '" + location + "': " + opcode);
                 }
             }
 
@@ -759,138 +816,138 @@ public final class J2IRConverter {
                 Local local2 = getLocal(value20);
                 int opcode = insn.getOpcode();
                 switch (opcode) {
-                case IALOAD:
-                    return emitValue(1, Exprs.nArray(local1, local2, "I"));
-                case BALOAD:
-                    return emitValue(1, Exprs.nArray(local1, local2, "B"));
-                case CALOAD:
-                    return emitValue(1, Exprs.nArray(local1, local2, "C"));
-                case SALOAD:
-                    return emitValue(1, Exprs.nArray(local1, local2, "S"));
-                case FALOAD:
-                    return emitValue(1, Exprs.nArray(local1, local2, "F"));
-                case AALOAD:
-                    return emitValue(1, Exprs.nArray(local1, local2, "L"));
-                case DALOAD:
-                    return emitValue(1, Exprs.nArray(local1, local2, "D"));
-                case LALOAD:
-                    return emitValue(1, Exprs.nArray(local1, local2, "J"));
-                case IADD:
-                    return emitValue(1, Exprs.nAdd(local1, local2, "I"));
-                case ISUB:
-                    return emitValue(1, Exprs.nSub(local1, local2, "I"));
-                case IMUL:
-                    return emitValue(1, Exprs.nMul(local1, local2, "I"));
-                case IDIV:
-                    return emitValue(1, Exprs.nDiv(local1, local2, "I"));
-                case IREM:
-                    return emitValue(1, Exprs.nRem(local1, local2, "I"));
-                case ISHL:
-                    return emitValue(1, Exprs.nShl(local1, local2, "I"));
-                case ISHR:
-                    return emitValue(1, Exprs.nShr(local1, local2, "I"));
-                case IUSHR:
-                    return emitValue(1, Exprs.nUshr(local1, local2, "I"));
-                case IAND:
-                    return emitValue(1, Exprs.nAnd(local1, local2, "I"));
-                case IOR:
-                    return emitValue(1, Exprs.nOr(local1, local2, "I"));
-                case IXOR:
-                    return emitValue(1, Exprs.nXor(local1, local2, "I"));
-                case FADD:
-                    return emitValue(1, Exprs.nAdd(local1, local2, "F"));
-                case FSUB:
-                    return emitValue(1, Exprs.nSub(local1, local2, "F"));
-                case FMUL:
-                    return emitValue(1, Exprs.nMul(local1, local2, "F"));
-                case FDIV:
-                    return emitValue(1, Exprs.nDiv(local1, local2, "F"));
-                case FREM:
-                    return emitValue(1, Exprs.nRem(local1, local2, "F"));
-                case LADD:
-                    return emitValue(2, Exprs.nAdd(local1, local2, "J"));
-                case LSUB:
-                    return emitValue(2, Exprs.nSub(local1, local2, "J"));
-                case LMUL:
-                    return emitValue(2, Exprs.nMul(local1, local2, "J"));
-                case LDIV:
-                    return emitValue(2, Exprs.nDiv(local1, local2, "J"));
-                case LREM:
-                    return emitValue(2, Exprs.nRem(local1, local2, "J"));
-                case LSHL:
-                    return emitValue(2, Exprs.nShl(local1, local2, "J"));
-                case LSHR:
-                    return emitValue(2, Exprs.nShr(local1, local2, "J"));
-                case LUSHR:
-                    return emitValue(2, Exprs.nUshr(local1, local2, "J"));
-                case LAND:
-                    return emitValue(2, Exprs.nAnd(local1, local2, "J"));
-                case LOR:
-                    return emitValue(2, Exprs.nOr(local1, local2, "J"));
-                case LXOR:
-                    return emitValue(2, Exprs.nXor(local1, local2, "J"));
+                    case IALOAD:
+                        return emitValue(1, Exprs.nArray(local1, local2, "I"));
+                    case BALOAD:
+                        return emitValue(1, Exprs.nArray(local1, local2, "B"));
+                    case CALOAD:
+                        return emitValue(1, Exprs.nArray(local1, local2, "C"));
+                    case SALOAD:
+                        return emitValue(1, Exprs.nArray(local1, local2, "S"));
+                    case FALOAD:
+                        return emitValue(1, Exprs.nArray(local1, local2, "F"));
+                    case AALOAD:
+                        return emitValue(1, Exprs.nArray(local1, local2, "L"));
+                    case DALOAD:
+                        return emitValue(1, Exprs.nArray(local1, local2, "D"));
+                    case LALOAD:
+                        return emitValue(1, Exprs.nArray(local1, local2, "J"));
+                    case IADD:
+                        return emitValue(1, Exprs.nAdd(local1, local2, "I"));
+                    case ISUB:
+                        return emitValue(1, Exprs.nSub(local1, local2, "I"));
+                    case IMUL:
+                        return emitValue(1, Exprs.nMul(local1, local2, "I"));
+                    case IDIV:
+                        return emitValue(1, Exprs.nDiv(local1, local2, "I"));
+                    case IREM:
+                        return emitValue(1, Exprs.nRem(local1, local2, "I"));
+                    case ISHL:
+                        return emitValue(1, Exprs.nShl(local1, local2, "I"));
+                    case ISHR:
+                        return emitValue(1, Exprs.nShr(local1, local2, "I"));
+                    case IUSHR:
+                        return emitValue(1, Exprs.nUshr(local1, local2, "I"));
+                    case IAND:
+                        return emitValue(1, Exprs.nAnd(local1, local2, "I"));
+                    case IOR:
+                        return emitValue(1, Exprs.nOr(local1, local2, "I"));
+                    case IXOR:
+                        return emitValue(1, Exprs.nXor(local1, local2, "I"));
+                    case FADD:
+                        return emitValue(1, Exprs.nAdd(local1, local2, "F"));
+                    case FSUB:
+                        return emitValue(1, Exprs.nSub(local1, local2, "F"));
+                    case FMUL:
+                        return emitValue(1, Exprs.nMul(local1, local2, "F"));
+                    case FDIV:
+                        return emitValue(1, Exprs.nDiv(local1, local2, "F"));
+                    case FREM:
+                        return emitValue(1, Exprs.nRem(local1, local2, "F"));
+                    case LADD:
+                        return emitValue(2, Exprs.nAdd(local1, local2, "J"));
+                    case LSUB:
+                        return emitValue(2, Exprs.nSub(local1, local2, "J"));
+                    case LMUL:
+                        return emitValue(2, Exprs.nMul(local1, local2, "J"));
+                    case LDIV:
+                        return emitValue(2, Exprs.nDiv(local1, local2, "J"));
+                    case LREM:
+                        return emitValue(2, Exprs.nRem(local1, local2, "J"));
+                    case LSHL:
+                        return emitValue(2, Exprs.nShl(local1, local2, "J"));
+                    case LSHR:
+                        return emitValue(2, Exprs.nShr(local1, local2, "J"));
+                    case LUSHR:
+                        return emitValue(2, Exprs.nUshr(local1, local2, "J"));
+                    case LAND:
+                        return emitValue(2, Exprs.nAnd(local1, local2, "J"));
+                    case LOR:
+                        return emitValue(2, Exprs.nOr(local1, local2, "J"));
+                    case LXOR:
+                        return emitValue(2, Exprs.nXor(local1, local2, "J"));
 
-                case DADD:
-                    return emitValue(2, Exprs.nAdd(local1, local2, "D"));
-                case DSUB:
-                    return emitValue(2, Exprs.nSub(local1, local2, "D"));
-                case DMUL:
-                    return emitValue(2, Exprs.nMul(local1, local2, "D"));
-                case DDIV:
-                    return emitValue(2, Exprs.nDiv(local1, local2, "D"));
-                case DREM:
-                    return emitValue(2, Exprs.nRem(local1, local2, "D"));
+                    case DADD:
+                        return emitValue(2, Exprs.nAdd(local1, local2, "D"));
+                    case DSUB:
+                        return emitValue(2, Exprs.nSub(local1, local2, "D"));
+                    case DMUL:
+                        return emitValue(2, Exprs.nMul(local1, local2, "D"));
+                    case DDIV:
+                        return emitValue(2, Exprs.nDiv(local1, local2, "D"));
+                    case DREM:
+                        return emitValue(2, Exprs.nRem(local1, local2, "D"));
 
-                case LCMP:
-                    return emitValue(2, Exprs.nLCmp(local1, local2));
-                case FCMPL:
-                    return emitValue(1, Exprs.nFCmpl(local1, local2));
-                case FCMPG:
-                    return emitValue(1, Exprs.nFCmpg(local1, local2));
-                case DCMPL:
-                    return emitValue(2, Exprs.nDCmpl(local1, local2));
-                case DCMPG:
-                    return emitValue(2, Exprs.nDCmpg(local1, local2));
+                    case LCMP:
+                        return emitValue(2, Exprs.nLCmp(local1, local2));
+                    case FCMPL:
+                        return emitValue(1, Exprs.nFCmpl(local1, local2));
+                    case FCMPG:
+                        return emitValue(1, Exprs.nFCmpg(local1, local2));
+                    case DCMPL:
+                        return emitValue(2, Exprs.nDCmpl(local1, local2));
+                    case DCMPG:
+                        return emitValue(2, Exprs.nDCmpg(local1, local2));
 
-                case IF_ICMPEQ:
-                    emit(Stmts.nIf(Exprs.nEq(local1, local2, "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IF_ICMPNE:
-                    emit(Stmts.nIf(Exprs.nNe(local1, local2, "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IF_ICMPLT:
-                    emit(Stmts.nIf(Exprs.nLt(local1, local2, "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IF_ICMPGE:
-                    emit(Stmts.nIf(Exprs.nGe(local1, local2, "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IF_ICMPGT:
-                    emit(Stmts.nIf(Exprs.nGt(local1, local2, "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IF_ICMPLE:
-                    emit(Stmts.nIf(Exprs.nLe(local1, local2, "I"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IF_ACMPEQ:
-                    emit(Stmts.nIf(Exprs.nEq(local1, local2, "L"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case IF_ACMPNE:
-                    emit(Stmts.nIf(Exprs.nNe(local1, local2, "L"),
-                            getLabel(((JumpInsnNode) insn).label)));
-                    return null;
-                case PUTFIELD:
-                    FieldInsnNode fin = (FieldInsnNode) insn;
-                    emit(Stmts.nAssign(Exprs.nField(local1, "L" + fin.owner + ";", fin.name, fin.desc), local2));
-                    return null;
-                default:
-                    String location = owner + "." + methodNode.name + methodNode.desc;
-                    throw new Error("Unsupported instruction in '" + location + "': " + opcode);
+                    case IF_ICMPEQ:
+                        emit(Stmts.nIf(Exprs.nEq(local1, local2, "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IF_ICMPNE:
+                        emit(Stmts.nIf(Exprs.nNe(local1, local2, "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IF_ICMPLT:
+                        emit(Stmts.nIf(Exprs.nLt(local1, local2, "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IF_ICMPGE:
+                        emit(Stmts.nIf(Exprs.nGe(local1, local2, "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IF_ICMPGT:
+                        emit(Stmts.nIf(Exprs.nGt(local1, local2, "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IF_ICMPLE:
+                        emit(Stmts.nIf(Exprs.nLe(local1, local2, "I"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IF_ACMPEQ:
+                        emit(Stmts.nIf(Exprs.nEq(local1, local2, "L"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case IF_ACMPNE:
+                        emit(Stmts.nIf(Exprs.nNe(local1, local2, "L"),
+                                getLabel(((JumpInsnNode) insn).label)));
+                        return null;
+                    case PUTFIELD:
+                        FieldInsnNode fin = (FieldInsnNode) insn;
+                        emit(Stmts.nAssign(Exprs.nField(local1, "L" + fin.owner + ";", fin.name, fin.desc), local2));
+                        return null;
+                    default:
+                        String location = owner + "." + methodNode.name + methodNode.desc;
+                        throw new Error("Unsupported instruction in '" + location + "': " + opcode);
                 }
             }
 
@@ -900,40 +957,40 @@ public final class J2IRConverter {
                 Local local2 = getLocal(value2);
                 Local local3 = getLocal(value3);
                 switch (insn.getOpcode()) {
-                case IASTORE:
-                    emit(Stmts.nAssign(Exprs.nArray(local1, local2, "I"),
-                            local3));
-                    break;
-                case LASTORE:
-                    emit(Stmts.nAssign(Exprs.nArray(local1, local2, "J"),
-                            local3));
-                    break;
-                case FASTORE:
-                    emit(Stmts.nAssign(Exprs.nArray(local1, local2, "F"),
-                            local3));
-                    break;
-                case DASTORE:
-                    emit(Stmts.nAssign(Exprs.nArray(local1, local2, "D"),
-                            local3));
-                    break;
-                case AASTORE:
-                    emit(Stmts.nAssign(Exprs.nArray(local1, local2, "L"),
-                            local3));
-                    break;
-                case BASTORE:
-                    emit(Stmts.nAssign(Exprs.nArray(local1, local2, "B"),
-                            local3));
-                    break;
-                case CASTORE:
-                    emit(Stmts.nAssign(Exprs.nArray(local1, local2, "C"),
-                            local3));
-                    break;
-                case SASTORE:
-                    emit(Stmts.nAssign(Exprs.nArray(local1, local2, "S"),
-                            local3));
-                    break;
-                default:
-                    break;
+                    case IASTORE:
+                        emit(Stmts.nAssign(Exprs.nArray(local1, local2, "I"),
+                                local3));
+                        break;
+                    case LASTORE:
+                        emit(Stmts.nAssign(Exprs.nArray(local1, local2, "J"),
+                                local3));
+                        break;
+                    case FASTORE:
+                        emit(Stmts.nAssign(Exprs.nArray(local1, local2, "F"),
+                                local3));
+                        break;
+                    case DASTORE:
+                        emit(Stmts.nAssign(Exprs.nArray(local1, local2, "D"),
+                                local3));
+                        break;
+                    case AASTORE:
+                        emit(Stmts.nAssign(Exprs.nArray(local1, local2, "L"),
+                                local3));
+                        break;
+                    case BASTORE:
+                        emit(Stmts.nAssign(Exprs.nArray(local1, local2, "B"),
+                                local3));
+                        break;
+                    case CASTORE:
+                        emit(Stmts.nAssign(Exprs.nArray(local1, local2, "C"),
+                                local3));
+                        break;
+                    case SASTORE:
+                        emit(Stmts.nAssign(Exprs.nArray(local1, local2, "S"),
+                                local3));
+                        break;
+                    default:
+                        break;
                 }
 
                 return null;
@@ -976,20 +1033,20 @@ public final class J2IRConverter {
                     String owner = "L" + mi.owner + ";";
                     String[] ps = toDescArray(Type.getArgumentTypes(mi.desc));
                     switch (insn.getOpcode()) {
-                    case INVOKEVIRTUAL:
-                        v = Exprs.nInvokeVirtual(values, owner, mi.name, ps, ret);
-                        break;
-                    case INVOKESPECIAL:
-                        v = Exprs.nInvokeSpecial(values, owner, mi.name, ps, ret);
-                        break;
-                    case INVOKESTATIC:
-                        v = Exprs.nInvokeStatic(values, owner, mi.name, ps, ret);
-                        break;
-                    case INVOKEINTERFACE:
-                        v = Exprs.nInvokeInterface(values, owner, mi.name, ps, ret);
-                        break;
-                    default:
-                        break;
+                        case INVOKEVIRTUAL:
+                            v = Exprs.nInvokeVirtual(values, owner, mi.name, ps, ret);
+                            break;
+                        case INVOKESPECIAL:
+                            v = Exprs.nInvokeSpecial(values, owner, mi.name, ps, ret);
+                            break;
+                        case INVOKESTATIC:
+                            v = Exprs.nInvokeStatic(values, owner, mi.name, ps, ret);
+                            break;
+                        case INVOKEINTERFACE:
+                            v = Exprs.nInvokeInterface(values, owner, mi.name, ps, ret);
+                            break;
+                        default:
+                            break;
                     }
                     if ("V".equals(ret)) {
                         emit(Stmts.nVoidInvoke(v));
@@ -1008,18 +1065,18 @@ public final class J2IRConverter {
             @Override
             public void returnOperation(AbstractInsnNode insn, JvmValue value, JvmValue expected) {
                 switch (insn.getOpcode()) {
-                case IRETURN:
-                case LRETURN:
-                case FRETURN:
-                case DRETURN:
-                case ARETURN:
-                    emit(Stmts.nReturn(getLocal(value)));
-                    break;
-                case RETURN:
-                    emit(Stmts.nReturnVoid());
-                    break;
-                default:
-                    break;
+                    case IRETURN:
+                    case LRETURN:
+                    case FRETURN:
+                    case DRETURN:
+                    case ARETURN:
+                        emit(Stmts.nReturn(getLocal(value)));
+                        break;
+                    case RETURN:
+                        emit(Stmts.nReturnVoid());
+                        break;
+                    default:
+                        break;
                 }
             }
         };
@@ -1029,7 +1086,7 @@ public final class J2IRConverter {
      * Gets the associated IR {@link Local} for the given {@link JvmValue}.
      *
      * @param value
-     * 		JVM value to get IR local of.
+     *         JVM value to get IR local of.
      *
      * @return IR local for the given value.
      */
@@ -1044,16 +1101,16 @@ public final class J2IRConverter {
 
     /**
      * @param labelNode
-     * 		Input JVM/ASM label.
+     *         Input JVM/ASM label.
      *
      * @return Associated IR label statement.
      */
     private LabelStmt getLabel(LabelNode labelNode) {
         Label label = labelNode.getLabel();
-        LabelStmt ls = map.get(label);
+        LabelStmt ls = labelStmtMap.get(label);
         if (ls == null) {
             ls = Stmts.nLabel();
-            map.put(label, ls);
+            labelStmtMap.put(label, ls);
         }
         return ls;
     }
@@ -1063,9 +1120,9 @@ public final class J2IRConverter {
      * to the values in the provided source frame.
      *
      * @param src
-     * 		Current source frame.
+     *         Current source frame.
      * @param destination
-     * 		Destination frame to flow into.
+     *         Destination frame to flow into.
      *
      * @see #mergeLocals(JvmFrame, JvmFrame)
      */
@@ -1083,9 +1140,9 @@ public final class J2IRConverter {
      * to the values in the provided source frame.
      *
      * @param source
-     * 		Current source frame.
+     *         Current source frame.
      * @param destination
-     * 		Destination frame to flow into.
+     *         Destination frame to flow into.
      */
     private void mergeLocals(JvmFrame source, JvmFrame destination) {
         // Relate the locals the destination frame, to the values in the source frame.
@@ -1109,9 +1166,9 @@ public final class J2IRConverter {
      * to the values in the provided source frame.
      *
      * @param sourceFrame
-     * 		Current source frame.
+     *         Current source frame.
      * @param destination
-     * 		Destination frame to flow into.
+     *         Destination frame to flow into.
      */
     private void mergeFull(JvmFrame sourceFrame, int destination) {
         JvmFrame destinationFrame = frames[destination];
@@ -1144,18 +1201,20 @@ public final class J2IRConverter {
                 }
             }
         } else {
-            // Frame not initialized at all, we can use 'init' to copy the state of our source frame.
+            // Source frame seems to not be visited (now control flow branch inputs)
+            // Can just do basic init (copy operation)
             destinationFrame.init(sourceFrame);
         }
     }
 
     /**
-     * Update's the child's {@link JvmValue#parent} and {@link JvmValue#otherParent} attributes to link to the given parent value.
+     * Update's the child's {@link JvmValue#parent} and {@link JvmValue#otherParent} attributes
+     * to link to the given parent value.
      *
      * @param parent
-     * 		Parent value to use.
+     *         Parent value to use.
      * @param child
-     * 		Child with parent relations to update to point to the {@code parent}.
+     *         Child with parent relations to update to point to the {@code parent}.
      */
     private static void relate(JvmValue parent, JvmValue child) {
         if (child.parent == null) {
@@ -1170,9 +1229,9 @@ public final class J2IRConverter {
 
     /**
      * @param methodNode
-     * 		Original method from ASM to pull maximum stack and local variable table sizes from.
+     *         Original method from ASM to pull maximum stack and local variable table sizes from.
      * @param target
-     * 		IR method to pull additional information from, like the type of {@code this} variables.
+     *         IR method to pull additional information from, like the type of {@code this} variables.
      *
      * @return Initial frame for analysis in {@link #dfs(BitSet[], BitSet, BitSet, Interpreter)}.
      */
@@ -1208,38 +1267,8 @@ public final class J2IRConverter {
         return local;
     }
 
-    /**
-     * @param type
-     * 		Type descriptor.
-     *
-     * @return Size of type in the JVM stack.
-     */
-    private static int sizeOfType(String type) {
-        switch (type.charAt(0)) {
-            case 'J':
-            case 'D':
-                return 2;
-            default:
-                return 1;
-        }
-    }
-
-    /**
-     * @param types
-     * 		Input array of ASM types.
-     *
-     * @return Array of descriptors.
-     */
-    private static String[] toDescArray(Type[] types) {
-        String[] ds = new String[types.length];
-        for (int i = 0; i < types.length; i++)
-            ds[i] = types[i].getDescriptor();
-        return ds;
-    }
-
-    static class JvmFrame extends Frame<JvmValue> {
-
-        JvmFrame(int nLocals, int nStack) {
+    private class JvmFrame extends Frame<JvmValue> {
+        private JvmFrame(int nLocals, int nStack) {
             super(nLocals, nStack);
         }
 
@@ -1258,9 +1287,7 @@ public final class J2IRConverter {
             } else if (insn.getOpcode() == Opcodes.GOTO) {
                 interpreter.unaryOperation(insn, null);
             } else if (insn.getOpcode() == RET || insn.getOpcode() == JSR) {
-                // TODO: We should use the JsrInlineAdapter from ASM to prevent these from showing up.
-                throw new RuntimeException("JSR/RET are deprecated JVM instructions." +
-                        "Dex2Jar does not currently support these.");
+                throw new DeprecatedInstructionException(owner, methodNode, insnList.indexOf(insn));
             } else {
                 super.execute(insn, interpreter);
             }

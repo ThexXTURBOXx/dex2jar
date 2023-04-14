@@ -11,6 +11,56 @@ import java.util.List;
  * @author Bob Pan
  */
 public class DexAnnotationNode extends DexAnnotationVisitor {
+    public List<Item> items = new ArrayList<>(5);
+
+    public String type;
+
+    public Visibility visibility;
+
+    public DexAnnotationNode(String type, Visibility visibility) {
+        super();
+        this.type = type;
+        this.visibility = visibility;
+    }
+
+    public void accept(DexAnnotationAble av) {
+        DexAnnotationVisitor av1 = av.visitAnnotation(type, visibility);
+        if (av1 != null) {
+            for (Item item : items) {
+                acceptAnnotationItem(av1, item.name, item.value);
+            }
+            av1.visitEnd();
+        }
+    }
+
+    @Override
+    public void visit(String name, Object value) {
+        items.add(new Item(name, value));
+    }
+
+    @Override
+    public DexAnnotationVisitor visitAnnotation(String name, String desc) {
+        DexAnnotationNode annotation = new DexAnnotationNode(desc, Visibility.RUNTIME);
+        items.add(new Item(name, annotation));
+        return annotation;
+    }
+
+    @Override
+    public DexAnnotationVisitor visitArray(final String name) {
+        return new AV() {
+            @Override
+            public void visitEnd() {
+                items.add(new Item(name, objs.toArray()));
+                super.visitEnd();
+            }
+        };
+    }
+
+    @Override
+    public void visitEnum(String name, String desc, String value) {
+        items.add(new Item(name, new Field(desc, value, desc)));
+    }
+
 
     private abstract static class AV extends DexAnnotationVisitor {
 
@@ -94,55 +144,4 @@ public class DexAnnotationNode extends DexAnnotationVisitor {
             dav.visit(name, o);
         }
     }
-
-    public List<Item> items = new ArrayList<>(5);
-
-    public String type;
-
-    public Visibility visibility;
-
-    public DexAnnotationNode(String type, Visibility visibility) {
-        super();
-        this.type = type;
-        this.visibility = visibility;
-    }
-
-    public void accept(DexAnnotationAble av) {
-        DexAnnotationVisitor av1 = av.visitAnnotation(type, visibility);
-        if (av1 != null) {
-            for (Item item : items) {
-                acceptAnnotationItem(av1, item.name, item.value);
-            }
-            av1.visitEnd();
-        }
-    }
-
-    @Override
-    public void visit(String name, Object value) {
-        items.add(new Item(name, value));
-    }
-
-    @Override
-    public DexAnnotationVisitor visitAnnotation(String name, String desc) {
-        DexAnnotationNode annotation = new DexAnnotationNode(desc, Visibility.RUNTIME);
-        items.add(new Item(name, annotation));
-        return annotation;
-    }
-
-    @Override
-    public DexAnnotationVisitor visitArray(final String name) {
-        return new AV() {
-            @Override
-            public void visitEnd() {
-                items.add(new Item(name, objs.toArray()));
-                super.visitEnd();
-            }
-        };
-    }
-
-    @Override
-    public void visitEnum(String name, String desc, String value) {
-        items.add(new Item(name, new Field(desc, value, desc)));
-    }
-
 }

@@ -1,6 +1,7 @@
 package com.googlecode.d2j.util;
 
 import com.googlecode.d2j.DexException;
+import com.googlecode.d2j.DexType;
 import org.objectweb.asm.Type;
 
 import java.util.ArrayList;
@@ -172,4 +173,12 @@ public final class Types {
         }
         return i;
     }
+
+	public static String toInternalName(DexType type) {
+		return toInternalName(type.desc);
+	}
+
+	public static String toInternalName(String desc) {
+		return desc.substring(1, desc.length() - 1);
+	}
 }

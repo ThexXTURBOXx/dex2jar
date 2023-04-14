@@ -14,6 +14,7 @@ import com.googlecode.d2j.node.DexClassNode;
 import com.googlecode.d2j.node.DexFieldNode;
 import com.googlecode.d2j.node.DexFileNode;
 import com.googlecode.d2j.node.DexMethodNode;
+import com.googlecode.d2j.util.Types;
 import com.googlecode.dex2jar.ir.IrMethod;
 import com.googlecode.dex2jar.ir.ts.AggTransformer;
 import com.googlecode.dex2jar.ir.ts.CleanLabel;
@@ -55,84 +56,40 @@ import org.objectweb.asm.signature.SignatureReader;
 import org.objectweb.asm.signature.SignatureWriter;
 import org.objectweb.asm.tree.InnerClassNode;
 
+/**
+ * Utility class wrapping all the relevant logic to convert dex code to Java with ASM.
+ *
+ * @see Dex2AsmWithHandler Extension with pluggable exception handling.
+ */
 public class Dex2Asm {
     protected static final int ACC_INTERFACE_ABSTRACT = (Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT);
-
     private static final int NO_CODE_MASK = DexConstants.ACC_ABSTRACT | DexConstants.ACC_NATIVE
             | DexConstants.ACC_ANNOTATION;
-
     private static final Comparator<InnerClassNode> INNER_CLASS_NODE_COMPARATOR =
             Comparator.comparing(o -> o.name);
+    private static final String HEX_CLASS_LOCATION = "res/Hex";
+    private static final Set<String> HEX_DECODE_METHODS =
+            new HashSet<>(Arrays.asList("decode_J", "decode_I", "decode_S", "decode_B"));
+
+    // Transformers
 
     protected static final CleanLabel T_CLEAN_LABEL = new CleanLabel();
-
     protected static final EndRemover T_END_REMOVE = new EndRemover();
-
     protected static final Ir2JRegAssignTransformer T_IR_2_J_REG_ASSIGN = new Ir2JRegAssignTransformer();
-
     protected static final NewTransformer T_NEW = new NewTransformer();
-
     protected static final RemoveConstantFromSSA T_REMOVE_CONST = new RemoveConstantFromSSA();
-
     protected static final RemoveLocalFromSSA T_REMOVE_LOCAL = new RemoveLocalFromSSA();
-
     protected static final ExceptionHandlerTrim T_TRIM_EX = new ExceptionHandlerTrim();
-
     protected static final TypeTransformer T_TYPE = new TypeTransformer();
-
     // protected static final TopologicalSort T_topologicalSort = new TopologicalSort();
-
     protected static final DeadCodeTransformer T_DEAD_CODE = new DeadCodeTransformer();
-
     protected static final FillArrayTransformer T_FILL_ARRAY = new FillArrayTransformer();
-
     protected static final AggTransformer T_AGG = new AggTransformer();
-
     protected static final UnSSATransformer T_UNSSA = new UnSSATransformer();
-
     protected static final ZeroTransformer T_ZERO = new ZeroTransformer();
-
     protected static final VoidInvokeTransformer T_VOID_INVOKE = new VoidInvokeTransformer();
-
     protected static final NpeTransformer T_NPE = new NpeTransformer();
-
     protected static final MultiArrayTransformer T_MULTI_ARRAY = new MultiArrayTransformer();
-
-    private static int clearClassAccess(boolean isInner, int access) {
-        if ((access & Opcodes.ACC_INTERFACE) == 0) { // issue 55
-            access |= Opcodes.ACC_SUPER; // 解决生成的class文件使用dx重新转换时使用的指令与原始指令不同的问题
-        }
-        // access in classes have no acc_static or acc_private
-        access &= ~(Opcodes.ACC_STATIC | Opcodes.ACC_PRIVATE);
-        if (isInner && (access & Opcodes.ACC_PROTECTED) != 0) {
-            // protected inner classes are public
-            access &= ~Opcodes.ACC_PROTECTED;
-            access |= Opcodes.ACC_PUBLIC;
-        }
-        access &= ~DexConstants.ACC_DECLARED_SYNCHRONIZED; // clean ACC_DECLARED_SYNCHRONIZED
-        access &= ~Opcodes.ACC_SYNTHETIC; // clean ACC_SYNTHETIC
-        return access;
-    }
-
-    private static int clearInnerAccess(int access) {
-        access &= (~Opcodes.ACC_SUPER); // inner class attr has no acc_super
-        if (0 != (access & Opcodes.ACC_PRIVATE)) { // clear public/protected if it is private
-            access &= ~(Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED);
-        } else if (0 != (access & Opcodes.ACC_PROTECTED)) { // clear public if it is protected
-            access &= ~(Opcodes.ACC_PUBLIC);
-        }
-        access &= ~Opcodes.ACC_SYNTHETIC; // clean ACC_SYNTHETIC
-        return access;
-    }
-
-    protected static String toInternalName(DexType type) {
-        return toInternalName(type.desc);
-    }
-
-    protected static String toInternalName(String desc) {
-        // TODO without creating object
-        return Type.getType(desc).getInternalName();
-    }
 
     public static void accept(DexAnnotationNode ann, ClassVisitor v) {
         AnnotationVisitor av = v.visitAnnotation(ann.type, ann.visibility != Visibility.BUILD);
@@ -250,7 +207,7 @@ public class Dex2Asm {
                             xthrows = new String[strs.length];
                             for (int i = 0; i < strs.length; i++) {
                                 DexType type = (DexType) strs[i];
-                                xthrows[i] = toInternalName(type);
+                                xthrows[i] = Types.toInternalName(type);
                             }
                         }
                     }
@@ -298,25 +255,37 @@ public class Dex2Asm {
                         switch (ann.type) {
                         case DexConstants.ANNOTATION_ENCLOSING_CLASS_TYPE: {
                             DexType type = (DexType) findAnnotationAttribute(ann, "value");
-                            Clz enclosingClass = get(classes, type.desc);
-                            clz.enclosingClass = enclosingClass;
+                            if (type != null) {
+                                Clz enclosingClass = get(classes, type.desc);
 
-                            // apply patch from ChaeHoon Lim,
-                            // obfuscated code may declare itself as enclosing class
-                            // which cause dex2jar to endless loop
-                            //if(!clz.name.equals(clz.enclosingClass.name)) {
-                            //    enclosingClass.addInner(clz);
-                            //}
-                            enclosingClass.addInner(clz);
-
+                                // Prevent infinite loop by stripping invalid self-references as the enclosing class.
+                                // Some obfuscators change classes to have this circular reference to crash analysis tools.
+                                if (!clz.name.equals(enclosingClass.name)) {
+                                    // TODO: Create test case with obfuscated inputs to cover cases like this
+                                    clz.enclosingClass = enclosingClass;
+                                    enclosingClass.addInner(clz);
+                                }
+                            } else {
+                                System.err.println("Could not find 'value' in EnclosingClass annotation");
+                            }
                         }
                         break;
                         case DexConstants.ANNOTATION_ENCLOSING_METHOD_TYPE: {
                             Method m = (Method) findAnnotationAttribute(ann, "value");
-                            Clz enclosingClass = get(classes, m.getOwner());
-                            clz.enclosingClass = enclosingClass;
-                            clz.enclosingMethod = m;
-                            enclosingClass.addInner(clz);
+                            if (m != null) {
+                                Clz enclosingClass = get(classes, m.getOwner());
+
+                                // Prevent infinite loop by stripping invalid self-references as the enclosing class.
+                                // Some obfuscators change classes to have this circular reference to crash analysis tools.
+                                if (!clz.name.equals(enclosingClass.name)) {
+                                    // TODO: Create test case with obfuscated inputs to cover cases like this
+                                    clz.enclosingClass = enclosingClass;
+                                    clz.enclosingMethod = m;
+                                    enclosingClass.addInner(clz);
+                                }
+                            } else {
+                                System.err.println("Could not find 'value' in EnclosingMethod annotation");
+                            }
                         }
                         break;
                         case DexConstants.ANNOTATION_INNER_CLASS_TYPE: {
@@ -331,11 +300,15 @@ public class Dex2Asm {
                         break;
                         case DexConstants.ANNOTATION_MEMBER_CLASSES_TYPE: {
                             Object[] ts = (Object[]) findAnnotationAttribute(ann, "value");
-                            for (Object v : ts) {
-                                DexType type = (DexType) v;
-                                Clz inner = get(classes, type.desc);
-                                clz.addInner(inner);
-                                inner.enclosingClass = clz;
+                            if (ts != null) {
+                                for (Object v : ts) {
+                                    DexType type = (DexType) v;
+                                    Clz inner = get(classes, type.desc);
+                                    clz.addInner(inner);
+                                    inner.enclosingClass = clz;
+                                }
+                            } else {
+                                System.err.println("Could not find 'value' in MemberClasses annotation");
                             }
                         }
                         break;
@@ -387,7 +360,7 @@ public class Dex2Asm {
 
     public void convertClass(int dexVersion, DexClassNode classNode, ClassVisitorFactory cvf,
                              Map<String, Clz> classes) {
-        ClassVisitor cv = cvf.create(toInternalName(classNode.className));
+        ClassVisitor cv = cvf.create(Types.toInternalName(classNode.className));
         if (cv == null) {
             return;
         }
@@ -398,8 +371,7 @@ public class Dex2Asm {
         if (classNode.anns != null) {
             for (DexAnnotationNode ann : classNode.anns) {
                 if (ann.visibility == Visibility.SYSTEM) {
-                    switch (ann.type) {
-                    case DexConstants.ANNOTATION_SIGNATURE_TYPE: {
+                    if (ann.type.equals(DexConstants.ANNOTATION_SIGNATURE_TYPE)) {
                         Object[] strs = (Object[]) findAnnotationAttribute(ann, "value");
                         if (strs != null) {
                             StringBuilder sb = new StringBuilder();
@@ -409,10 +381,6 @@ public class Dex2Asm {
                             signature = sb.toString();
                         }
                     }
-                    break;
-                    default:
-                        break;
-                    }
                 }
             }
         }
@@ -420,7 +388,7 @@ public class Dex2Asm {
         if (classNode.interfaceNames != null) {
             interfaceInterNames = new String[classNode.interfaceNames.length];
             for (int i = 0; i < classNode.interfaceNames.length; i++) {
-                interfaceInterNames[i] = toInternalName(classNode.interfaceNames[i]);
+                interfaceInterNames[i] = Types.toInternalName(classNode.interfaceNames[i]);
             }
         }
 
@@ -438,8 +406,8 @@ public class Dex2Asm {
         }
 
         int version = dexVersion >= DexConstants.DEX_037 ? Opcodes.V1_8 : Opcodes.V1_6;
-        cv.visit(version, access, toInternalName(classNode.className), signature,
-                classNode.superClass == null ? null : toInternalName(classNode.superClass), interfaceInterNames);
+        cv.visit(version, access, Types.toInternalName(classNode.className), signature,
+                classNode.superClass == null ? null : Types.toInternalName(classNode.superClass), interfaceInterNames);
 
         List<InnerClassNode> innerClassNodes = new ArrayList<>(5);
         if (clzInfo != null) {
@@ -450,11 +418,11 @@ public class Dex2Asm {
             if (clzInfo.innerName == null) { // anonymous Innerclass
                 Method enclosingMethod = clzInfo.enclosingMethod;
                 if (enclosingMethod != null) {
-                    cv.visitOuterClass(toInternalName(enclosingMethod.getOwner()), enclosingMethod.getName(),
+                    cv.visitOuterClass(Types.toInternalName(enclosingMethod.getOwner()), enclosingMethod.getName(),
                             enclosingMethod.getDesc());
                 } else {
                     Clz enclosingClass = clzInfo.enclosingClass;
-                    cv.visitOuterClass(toInternalName(enclosingClass.name), null, null);
+                    cv.visitOuterClass(Types.toInternalName(enclosingClass.name), null, null);
                 }
             }
             searchEnclosing(clzInfo, innerClassNodes);
@@ -490,11 +458,6 @@ public class Dex2Asm {
         }
         cv.visitEnd();
     }
-
-    private static final String HEX_CLASS_LOCATION = "res/Hex";
-
-    private static final Set<String> HEX_DECODE_METHODS =
-            new HashSet<>(Arrays.asList("decode_J", "decode_I", "decode_S", "decode_B"));
 
     protected InputStream getHexClassAsStream() {
         return Dex2Asm.class.getResourceAsStream("/" + HEX_CLASS_LOCATION + ".class");
@@ -557,8 +520,7 @@ public class Dex2Asm {
         if (fieldNode.anns != null) {
             for (DexAnnotationNode ann : fieldNode.anns) {
                 if (ann.visibility == Visibility.SYSTEM) {
-                    switch (ann.type) {
-                    case DexConstants.ANNOTATION_SIGNATURE_TYPE:
+                    if (ann.type.equals(DexConstants.ANNOTATION_SIGNATURE_TYPE)) {
                         Object[] strs = (Object[]) findAnnotationAttribute(ann, "value");
                         if (strs != null) {
                             StringBuilder sb = new StringBuilder();
@@ -567,9 +529,6 @@ public class Dex2Asm {
                             }
                             signature = sb.toString();
                         }
-                        break;
-                    default:
-                        break;
                     }
                 }
             }
@@ -595,6 +554,37 @@ public class Dex2Asm {
         }
         accept(fieldNode.anns, fv);
         fv.visitEnd();
+    }
+
+    public void optimize(IrMethod irMethod) {
+        T_CLEAN_LABEL.transform(irMethod);
+        T_DEAD_CODE.transform(irMethod);
+        T_REMOVE_LOCAL.transform(irMethod);
+        T_REMOVE_CONST.transform(irMethod);
+        T_ZERO.transform(irMethod);
+        if (T_NPE.transformReportChanged(irMethod)) {
+            T_DEAD_CODE.transform(irMethod);
+            T_REMOVE_LOCAL.transform(irMethod);
+            T_REMOVE_CONST.transform(irMethod);
+        }
+        T_NEW.transform(irMethod);
+        T_FILL_ARRAY.transform(irMethod);
+        T_AGG.transform(irMethod);
+        T_MULTI_ARRAY.transform(irMethod);
+        T_VOID_INVOKE.transform(irMethod);
+
+        {
+            // https://github.com/pxb1988/dex2jar/issues/477
+            // dead code found in unssa, clean up
+            T_DEAD_CODE.transform(irMethod);
+            T_REMOVE_LOCAL.transform(irMethod);
+            T_REMOVE_CONST.transform(irMethod);
+        }
+
+        T_TYPE.transform(irMethod);
+        T_UNSSA.transform(irMethod);
+        T_TRIM_EX.transform(irMethod);
+        T_IR_2_J_REG_ASSIGN.transform(irMethod);
     }
 
     /**
@@ -638,32 +628,32 @@ public class Dex2Asm {
             switch (mh.getType()) {
             case MethodHandle.INSTANCE_GET:
             case MethodHandle.STATIC_GET:
-                h = new Handle(Opcodes.H_GETFIELD, toInternalName(mh.getField().getOwner()), mh.getField().getName(),
+                h = new Handle(Opcodes.H_GETFIELD, Types.toInternalName(mh.getField().getOwner()), mh.getField().getName(),
                         mh.getField().getType(), false);
                 break;
             case MethodHandle.INSTANCE_PUT:
             case MethodHandle.STATIC_PUT:
-                h = new Handle(Opcodes.H_PUTFIELD, toInternalName(mh.getField().getOwner()), mh.getField().getName(),
+                h = new Handle(Opcodes.H_PUTFIELD, Types.toInternalName(mh.getField().getOwner()), mh.getField().getName(),
                         mh.getField().getType(), false);
                 break;
             case MethodHandle.INVOKE_INSTANCE:
-                h = new Handle(Opcodes.H_INVOKEVIRTUAL, toInternalName(mh.getMethod().getOwner()),
+                h = new Handle(Opcodes.H_INVOKEVIRTUAL, Types.toInternalName(mh.getMethod().getOwner()),
                         mh.getMethod().getName(), mh.getMethod().getDesc(), false);
                 break;
             case MethodHandle.INVOKE_STATIC:
-                h = new Handle(Opcodes.H_INVOKESTATIC, toInternalName(mh.getMethod().getOwner()),
+                h = new Handle(Opcodes.H_INVOKESTATIC, Types.toInternalName(mh.getMethod().getOwner()),
                         mh.getMethod().getName(), mh.getMethod().getDesc(), false);
                 break;
             case MethodHandle.INVOKE_CONSTRUCTOR:
-                h = new Handle(Opcodes.H_NEWINVOKESPECIAL, toInternalName(mh.getMethod().getOwner()),
+                h = new Handle(Opcodes.H_NEWINVOKESPECIAL, Types.toInternalName(mh.getMethod().getOwner()),
                         mh.getMethod().getName(), mh.getMethod().getDesc(), false);
                 break;
             case MethodHandle.INVOKE_DIRECT:
-                h = new Handle(Opcodes.H_INVOKESPECIAL, toInternalName(mh.getMethod().getOwner()),
+                h = new Handle(Opcodes.H_INVOKESPECIAL, Types.toInternalName(mh.getMethod().getOwner()),
                         mh.getMethod().getName(), mh.getMethod().getDesc(), false);
                 break;
             case MethodHandle.INVOKE_INTERFACE:
-                h = new Handle(Opcodes.H_INVOKEINTERFACE, toInternalName(mh.getMethod().getOwner()),
+                h = new Handle(Opcodes.H_INVOKEINTERFACE, Types.toInternalName(mh.getMethod().getOwner()),
                         mh.getMethod().getName(), mh.getMethod().getDesc(), true);
                 break;
             default:
@@ -764,35 +754,31 @@ public class Dex2Asm {
         mv.visitMaxs(-1, -1);
     }
 
-    public void optimize(IrMethod irMethod) {
-        T_CLEAN_LABEL.transform(irMethod);
-        T_DEAD_CODE.transform(irMethod);
-        T_REMOVE_LOCAL.transform(irMethod);
-        T_REMOVE_CONST.transform(irMethod);
-        T_ZERO.transform(irMethod);
-        if (T_NPE.transformReportChanged(irMethod)) {
-            T_DEAD_CODE.transform(irMethod);
-            T_REMOVE_LOCAL.transform(irMethod);
-            T_REMOVE_CONST.transform(irMethod);
+    private static int clearClassAccess(boolean isInner, int access) {
+        if ((access & Opcodes.ACC_INTERFACE) == 0) { // issue 55
+            access |= Opcodes.ACC_SUPER; // 解决生成的class文件使用dx重新转换时使用的指令与原始指令不同的问题
         }
-        T_NEW.transform(irMethod);
-        T_FILL_ARRAY.transform(irMethod);
-        T_AGG.transform(irMethod);
-        T_MULTI_ARRAY.transform(irMethod);
-        T_VOID_INVOKE.transform(irMethod);
-
-        {
-            // https://github.com/pxb1988/dex2jar/issues/477
-            // dead code found in unssa, clean up
-            T_DEAD_CODE.transform(irMethod);
-            T_REMOVE_LOCAL.transform(irMethod);
-            T_REMOVE_CONST.transform(irMethod);
+        // access in classes have no acc_static or acc_private
+        access &= ~(Opcodes.ACC_STATIC | Opcodes.ACC_PRIVATE);
+        if (isInner && (access & Opcodes.ACC_PROTECTED) != 0) {
+            // protected inner classes are public
+            access &= ~Opcodes.ACC_PROTECTED;
+            access |= Opcodes.ACC_PUBLIC;
         }
+        access &= ~DexConstants.ACC_DECLARED_SYNCHRONIZED; // clean ACC_DECLARED_SYNCHRONIZED
+        access &= ~Opcodes.ACC_SYNTHETIC; // clean ACC_SYNTHETIC
+        return access;
+    }
 
-        T_TYPE.transform(irMethod);
-        T_UNSSA.transform(irMethod);
-        T_TRIM_EX.transform(irMethod);
-        T_IR_2_J_REG_ASSIGN.transform(irMethod);
+    private static int clearInnerAccess(int access) {
+        access &= (~Opcodes.ACC_SUPER); // inner class attr has no acc_super
+        if (0 != (access & Opcodes.ACC_PRIVATE)) { // clear public/protected if it is private
+            access &= ~(Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED);
+        } else if (0 != (access & Opcodes.ACC_PROTECTED)) { // clear public if it is protected
+            access &= ~(Opcodes.ACC_PUBLIC);
+        }
+        access &= ~Opcodes.ACC_SYNTHETIC; // clean ACC_SYNTHETIC
+        return access;
     }
 
     /**
@@ -833,10 +819,10 @@ public class Dex2Asm {
             }
             int accessInInner = clearInnerAccess(p.access);
             if (p.innerName != null) { // non-anonymous inner class
-                innerClassNodes.add(new InnerClassNode(toInternalName(p.name),
-                        toInternalName(enclosingClass.name), p.innerName, accessInInner));
+                innerClassNodes.add(new InnerClassNode(Types.toInternalName(p.name),
+                        Types.toInternalName(enclosingClass.name), p.innerName, accessInInner));
             } else { // anonymous inner class
-                innerClassNodes.add(new InnerClassNode(toInternalName(p.name), null, null, accessInInner));
+                innerClassNodes.add(new InnerClassNode(Types.toInternalName(p.name), null, null, accessInInner));
             }
         }
     }
@@ -873,10 +859,10 @@ public class Dex2Asm {
             if (visited.add(clz) && clz.inners != null) {
                 for (Clz inner : clz.inners) {
                     if (inner.innerName == null) { // anonymous Innerclass
-                        innerClassNodes.add(new InnerClassNode(toInternalName(inner.name), null, null,
+                        innerClassNodes.add(new InnerClassNode(Types.toInternalName(inner.name), null, null,
                                 clearInnerAccess(inner.access)));
                     } else { // non-anonymous Innerclass
-                        innerClassNodes.add(new InnerClassNode(toInternalName(inner.name), toInternalName(clz.name),
+                        innerClassNodes.add(new InnerClassNode(Types.toInternalName(inner.name), Types.toInternalName(clz.name),
                                 inner.innerName, clearInnerAccess(inner.access)));
                     }
                     stack.push(inner);

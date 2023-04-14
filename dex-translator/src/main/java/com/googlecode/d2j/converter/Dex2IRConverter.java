@@ -1563,8 +1563,8 @@ public class Dex2IRConverter {
 
         Local local;
 
-        DvmValue(Local thiz) {
-            this.local = thiz;
+        DvmValue(Local local) {
+            this.local = local;
         }
 
         DvmValue() {

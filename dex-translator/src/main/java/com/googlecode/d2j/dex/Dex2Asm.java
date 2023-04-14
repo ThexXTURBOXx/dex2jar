@@ -56,77 +56,13 @@ import org.objectweb.asm.signature.SignatureWriter;
 import org.objectweb.asm.tree.InnerClassNode;
 
 public class Dex2Asm {
-
-    public static class ClzCtx {
-
-        public String classDescriptor;
-
-        public String hexDecodeMethodNamePrefix;
-
-        public String buildHexDecodeMethodName(String x) {
-            if (hexDecodeMethodNamePrefix == null) {
-                byte[] d = new byte[4];
-                Dex2jar.random.nextBytes(d);
-                hexDecodeMethodNamePrefix = "$d2j$hex$" + IR2JConverter.hexEncode(d);
-            }
-            return hexDecodeMethodNamePrefix + "$decode_" + x;
-        }
-
-    }
-
-    protected static class Clz {
-
-        public int access;
-
-        public Clz enclosingClass;
-
-        public Method enclosingMethod;
-
-        public String innerName;
-
-        public Set<Clz> inners = null;
-
-        public final String name;
-
-        public Clz(String name) {
-            super();
-            this.name = name;
-        }
-
-        void addInner(Clz clz) {
-            if (inners == null) {
-                inners = new HashSet<>();
-            }
-            inners.add(clz);
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (!(o instanceof Clz)) {
-                return false;
-            }
-            Clz clz = (Clz) o;
-            return Objects.equals(name, clz.name);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(name);
-        }
-
-        public String toString() {
-            return "" + name;
-        }
-
-    }
-
     protected static final int ACC_INTERFACE_ABSTRACT = (Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT);
 
     private static final int NO_CODE_MASK = DexConstants.ACC_ABSTRACT | DexConstants.ACC_NATIVE
             | DexConstants.ACC_ANNOTATION;
+
+    private static final Comparator<InnerClassNode> INNER_CLASS_NODE_COMPARATOR =
+            Comparator.comparing(o -> o.name);
 
     protected static final CleanLabel T_CLEAN_LABEL = new CleanLabel();
 
@@ -949,7 +885,69 @@ public class Dex2Asm {
         }
     }
 
-    private static final Comparator<InnerClassNode> INNER_CLASS_NODE_COMPARATOR =
-            Comparator.comparing(o -> o.name);
+    public static class ClzCtx {
 
+        public String classDescriptor;
+
+        public String hexDecodeMethodNamePrefix;
+
+        public String buildHexDecodeMethodName(String x) {
+            if (hexDecodeMethodNamePrefix == null) {
+                byte[] d = new byte[4];
+                Dex2jar.random.nextBytes(d);
+                hexDecodeMethodNamePrefix = "$d2j$hex$" + IR2JConverter.hexEncode(d);
+            }
+            return hexDecodeMethodNamePrefix + "$decode_" + x;
+        }
+
+    }
+
+    protected static class Clz {
+
+        public int access;
+
+        public Clz enclosingClass;
+
+        public Method enclosingMethod;
+
+        public String innerName;
+
+        public Set<Clz> inners = null;
+
+        public final String name;
+
+        public Clz(String name) {
+            super();
+            this.name = name;
+        }
+
+        void addInner(Clz clz) {
+            if (inners == null) {
+                inners = new HashSet<>();
+            }
+            inners.add(clz);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof Clz)) {
+                return false;
+            }
+            Clz clz = (Clz) o;
+            return Objects.equals(name, clz.name);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(name);
+        }
+
+        public String toString() {
+            return "" + name;
+        }
+
+    }
 }

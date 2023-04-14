@@ -7,11 +7,11 @@ import org.objectweb.asm.AsmBridge;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.tree.MethodNode;
 
-public class ExDex2Asm extends Dex2Asm {
+public class Dex2AsmWithHandler extends Dex2Asm {
 
     protected final DexExceptionHandler exceptionHandler;
 
-    public ExDex2Asm(DexExceptionHandler exceptionHandler) {
+    public Dex2AsmWithHandler(DexExceptionHandler exceptionHandler) {
         this.exceptionHandler = exceptionHandler;
     }
 

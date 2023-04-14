@@ -1,7 +1,7 @@
 package com.googlecode.dex2jar.tools;
 
 import com.googlecode.d2j.dex.ClassVisitorFactory;
-import com.googlecode.d2j.dex.ExDex2Asm;
+import com.googlecode.d2j.dex.Dex2AsmWithHandler;
 import com.googlecode.d2j.dex.LambadaNameSafeClassAdapter;
 import com.googlecode.d2j.node.DexClassNode;
 import com.googlecode.d2j.node.DexFileNode;
@@ -122,7 +122,7 @@ public class Dex2jarMultiThreadCmd extends BaseCmd {
             }
         };
 
-        new ExDex2Asm(exceptionHandler) {
+        new Dex2AsmWithHandler(exceptionHandler) {
 
             @Override
             public void convertDex(final DexFileNode fileNode, final ClassVisitorFactory cvf) {

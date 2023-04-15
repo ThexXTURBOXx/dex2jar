@@ -1,7 +1,15 @@
 plugins {
     id "application"
-    id "com.github.johnrengelman.shadow" version "7.1.2"
+    id "com.github.johnrengelman.shadow" version "8.1.1"
 }
+
+ext.antlr3Version = '3.5.3'
+ext.antlr4Version = '4.9.3' // Newer versions only for Java 11+
+ext.asmVersion = '9.5'
+ext.baksmaliVersion = '2.5.2'
+ext.commonsCompressVersion = '1.22'
+ext.jUnitVersion = '5.9.2'
+ext.r8Version = '8.0.40'
 
 allprojects {
     group = 'com.googlecode.d2j'
@@ -9,10 +17,9 @@ allprojects {
 
     repositories {
         mavenCentral()
+        google()
     }
 }
-
-def junitVersion = '5.9.2'
 
 subprojects {
     apply plugin: 'java'
@@ -22,9 +29,9 @@ subprojects {
 
     dependencies {
         implementation fileTree(dir: 'libs', include: '*.jar')
-        testImplementation "org.junit.jupiter:junit-jupiter-api:$junitVersion"
-        testImplementation "org.junit.jupiter:junit-jupiter-params:$junitVersion"
-        testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:$junitVersion"
+        testImplementation "org.junit.jupiter:junit-jupiter-api:${project.property('jUnitVersion')}"
+        testImplementation "org.junit.jupiter:junit-jupiter-params:${project.property('jUnitVersion')}"
+        testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${project.property('jUnitVersion')}"
     }
 
     [compileJava, compileTestJava]*.options.collect { options -> options.encoding = 'UTF-8' }

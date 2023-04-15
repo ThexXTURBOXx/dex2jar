@@ -7,6 +7,8 @@ import com.googlecode.d2j.visitors.DexAnnotationVisitor;
 import com.googlecode.d2j.visitors.DexClassVisitor;
 import com.googlecode.d2j.visitors.DexCodeVisitor;
 import com.googlecode.d2j.visitors.DexMethodVisitor;
+import org.objectweb.asm.Opcodes;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,6 +34,22 @@ public class DexMethodNode extends DexMethodVisitor {
         super();
         this.access = access;
         this.method = method;
+    }
+
+    public boolean isStatic() {
+        return (access & Opcodes.ACC_STATIC) != 0;
+    }
+
+    public boolean isPrivate() {
+        return (access & Opcodes.ACC_PRIVATE) != 0;
+    }
+
+    public boolean isConstructor() {
+        return method.getName().equals("<init>");
+    }
+
+    public boolean isStaticInitializer() {
+        return method.getName().equals("<clinit>");
     }
 
     public void accept(DexClassVisitor dcv) {
@@ -110,5 +128,4 @@ public class DexMethodNode extends DexMethodVisitor {
             return annotation;
         };
     }
-
 }

@@ -5,6 +5,8 @@ import com.googlecode.d2j.Visibility;
 import com.googlecode.d2j.visitors.DexAnnotationVisitor;
 import com.googlecode.d2j.visitors.DexClassVisitor;
 import com.googlecode.d2j.visitors.DexFieldVisitor;
+import org.objectweb.asm.Opcodes;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,6 +35,10 @@ public class DexFieldNode extends DexFieldVisitor {
         this.access = access;
         this.field = field;
         this.cst = cst;
+    }
+
+    public boolean isStatic() {
+        return (access & Opcodes.ACC_STATIC) != 0;
     }
 
     public void accept(DexClassVisitor dcv) {

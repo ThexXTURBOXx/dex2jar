@@ -3,6 +3,7 @@ plugins {
     id "signing"
     id "io.github.gradle-nexus.publish-plugin" version "2.0.0"
     id "dex2jar.build-conventions"
+    alias libs.plugins.versions
 }
 
 description = 'Supermodule for dex2jar'

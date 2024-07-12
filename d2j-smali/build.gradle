@@ -6,13 +6,13 @@ plugins {
 description = "Smali support for dex2jar"
 
 dependencies {
-    api "org.antlr:antlr4-runtime:${project.property('antlr4Version')}"
+    api libs.antlr4.runtime
     api project(':dex-reader-api')
     api project(':dex-reader')
-    antlr "org.antlr:antlr4:${project.property('antlr4Version')}"
+    antlr libs.antlr4
     api project(':d2j-base-cmd')
     api project(':dex-writer')
-    testImplementation "com.android.tools.smali:smali-baksmali:${project.property('baksmaliVersion')}"
+    testImplementation libs.baksmali
 }
 
 generateGrammarSource {

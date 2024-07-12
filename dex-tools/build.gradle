@@ -12,17 +12,17 @@ dependencies {
     api project(':dex-writer')
     api project(':d2j-base-cmd')
     api project(path: ':d2j-external', configuration: 'shadow')
-    // api group: 'org.ow2.asm', name: 'asm', version: project.property('asmVersion') // Fixed MethodCodeTooLargeException
-    api(group: 'org.ow2.asm', name: 'asm-tree', version: project.property('asmVersion')) {
+    // api libs.asm // Fixed MethodCodeTooLargeException
+    api(libs.asm.tree) {
         exclude(module: 'asm')
     }
-    api(group: 'org.ow2.asm', name: 'asm-util', version: project.property('asmVersion')) {
+    api(libs.asm.util) {
         exclude(module: 'asm')
     }
-    api(group: 'org.ow2.asm', name: 'asm-commons', version: project.property('asmVersion')) {
+    api(libs.asm.commons) {
         exclude(module: 'asm')
     }
-    testImplementation "org.antlr:antlr-runtime:${project.property('antlr3Version')}"
+    testImplementation libs.antlr3.runtime
 }
 
 tasks.register('bin_gen', JavaExec) {

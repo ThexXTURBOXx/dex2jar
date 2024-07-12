@@ -4,15 +4,6 @@ plugins {
     id 'signing'
 }
 
-ext.antlr3Version = '3.5.3'
-ext.antlr4Version = '4.13.1'
-ext.asmVersion = '9.7'
-ext.baksmaliVersion = '3.0.7'
-ext.commonsCompressVersion = '1.26.2'
-ext.jUnitVersion = '5.10.3'
-ext.jUnitPlatformVersion = '1.10.3'
-ext.r8Version = '4.0.63' // Newer versions only for Java 11+
-
 group = 'de.femtopedia.dex2jar'
 version = project.findProperty('version')
 version = version == null || version == 'unspecified' ? '2.4-SNAPSHOT' : version
@@ -41,8 +32,8 @@ javadoc {
 }
 
 dependencies {
-    testImplementation "org.junit.jupiter:junit-jupiter:${project.property('jUnitVersion')}"
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher:${project.property('jUnitPlatformVersion')}")
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly libs.junit.platform.launcher
 }
 
 [compileJava, compileTestJava]*.options.collect { options ->

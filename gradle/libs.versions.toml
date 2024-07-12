@@ -7,6 +7,8 @@ commons-compress = '1.26.2'
 junit = '5.10.3'
 junit-platform = '1.10.3'
 r8 = '4.0.63' # Newer versions only for Java 11+
+nexus-publish-plugin = '2.0.0'
+shadow-plugin = '8.1.1'
 versions-plugin = '0.51.0'
 
 [libraries]
@@ -24,4 +26,6 @@ junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher
 r8 = { module = "com.android.tools:r8", version.ref = "r8" }
 
 [plugins]
+nexus-publish = { id = "io.github.gradle-nexus.publish-plugin", version.ref = "nexus-publish-plugin" }
+shadow = { id = "com.github.johnrengelman.shadow", version.ref = "shadow-plugin" }
 versions = { id = "com.github.ben-manes.versions", version.ref = "versions-plugin" }

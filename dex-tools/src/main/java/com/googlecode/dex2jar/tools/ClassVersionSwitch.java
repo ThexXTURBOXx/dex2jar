@@ -2,9 +2,9 @@ package com.googlecode.dex2jar.tools;
 
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.util.Enumeration;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -26,13 +26,14 @@ public final class ClassVersionSwitch {
         }
         int version = Integer.parseInt(args[0]);
         if (version < 1 || version >= Constants.JAVA_VERSIONS.length) {
-            throw new RuntimeException("version not support yet!");
+            throw new RuntimeException("version not supported yet!");
         }
         File old = new File(args[1]);
         File n = new File(args[2]);
         byte[] buff = new byte[1024 * 50];
         final int jVersion = Constants.JAVA_VERSIONS[version];
-        try (ZipFile zip = new ZipFile(old); ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(n))) {
+        try (ZipFile zip = new ZipFile(old); ZipOutputStream zos =
+                new ZipOutputStream(Files.newOutputStream(n.toPath()))) {
 
             Enumeration<? extends ZipEntry> e = zip.entries();
             while (e.hasMoreElements()) {

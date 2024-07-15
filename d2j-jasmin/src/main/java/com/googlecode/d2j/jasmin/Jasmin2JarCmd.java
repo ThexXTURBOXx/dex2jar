@@ -34,7 +34,8 @@ public class Jasmin2JarCmd extends BaseCmd implements Opcodes {
     private boolean forceOverwrite = false;
 
     @Opt(opt = "o", longOpt = "output", description = "output .jar file, default is "
-            + "$current_dir/[jar-name]-jasmin2jar.jar", argName = "out-jar-file")
+                                                      + "$current_dir/[jar-name]-jasmin2jar.jar",
+            argName = "out-jar-file")
     private Path output;
 
     @Opt(opt = "e", longOpt = "encoding", description = "encoding for .j files, default is UTF-8", argName = "enc")
@@ -46,7 +47,8 @@ public class Jasmin2JarCmd extends BaseCmd implements Opcodes {
     @Opt(longOpt = "no-compute-max", description = "", hasArg = false)
     private boolean noComputeMax;
 
-    @Opt(opt = "cv", longOpt = "class-version", description = "default .class version, [1~21], default 8 for JAVA8")
+    @Opt(opt = "cv", longOpt = "class-version", description = "default .class version, [1~" +
+                                                              Constants.MAX_JAVA_VERSION + "], default 8 for JAVA8")
     private int classVersion = 8;
 
     public Jasmin2JarCmd() {
@@ -62,9 +64,9 @@ public class Jasmin2JarCmd extends BaseCmd implements Opcodes {
             usage();
             return;
         }
-        int maxClassVersion = Constants.JAVA_VERSIONS.length - 1;
-        if (classVersion < 1 || classVersion > maxClassVersion) {
-            throw new HelpException("-cv,--class-version out of range, 1-" + maxClassVersion + " is supported.");
+        if (classVersion < 1 || classVersion > Constants.MAX_JAVA_VERSION) {
+            throw new HelpException("-cv,--class-version out of range, 1-" + Constants.MAX_JAVA_VERSION +
+                                    " is supported.");
         }
 
         Path jar = new File(remainingArgs[0]).toPath().toAbsolutePath();

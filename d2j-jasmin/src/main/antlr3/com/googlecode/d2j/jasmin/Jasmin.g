@@ -997,7 +997,7 @@ sHead   :  '.bytecode' ( a=INT { int v=parseInt($a.text); cn.version=versions[v>
         |  '.no_super' {cn.superName=null;}
 		|  '.class_attribute' sId STRING    { System.err.println("ignore .class_attribute"); }
 		|  '.enclosing_method_attr' a=STRING b1=STRING c=STRING   {cn.visitOuterClass($a.text,$b1.text,$c.text);}
-		|  '.inner_class_attr' ('.inner_class_spec_attr' a=STRING b2=STRING i=sAccList '.end' '.inner_class_spec_attr' { cn.visitInnerClass("test",unEscape($a.text),unEscape($b2.text),i); } )* '.end' '.inner_class_attr'
+		|  '.inner_class_attr' ('.inner_class_spec_attr' a=STRING b2=STRING i=sAccList '.end' '.inner_class_spec_attr' { cn.visitInnerClass(null,unEscape($a.text),unEscape($b2.text),i); } )* '.end' '.inner_class_attr'
 		|  s=sSigAttr  { cn.signature=$s.sig; }
 		|  sSynthetic   {cn.access|=ACC_SYNTHETIC;}
 		;

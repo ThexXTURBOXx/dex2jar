@@ -1,7 +1,7 @@
 # dex2jar
 
 <p align="center">
-  <a href="https://www.travis-ci.com/github/ThexXTURBOXx/dex2jar"><img src="https://www.travis-ci.com/ThexXTURBOXx/dex2jar.svg?branch=develop" alt="Travis CI build status"></a>
+  <a href="https://github.com/ThexXTURBOXx/dex2jar/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ThexXTURBOXx/dex2jar/build.yml?logo=githubactions&style=flat-square" alt="Workflow status"></a>
 </p>
 
 This is [Nico Mexis'](https://github.com/ThexXTURBOXx) fork of the dex2jar project which aims to fix most issues.

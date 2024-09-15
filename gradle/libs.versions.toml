@@ -1,14 +1,14 @@
 [versions]
 antlr3 = '3.5.3'
-antlr4 = '4.13.1'
+antlr4 = '4.13.2'
 asm = '9.7'
-smali = '3.0.7'
-commons-compress = '1.26.2'
-junit = '5.10.3'
-junit-platform = '1.10.3'
+smali = '3.0.8'
+commons-compress = '1.27.1'
+junit = '5.11.0'
+junit-platform = '1.11.0'
 r8 = '4.0.63' # Newer versions only for Java 11+
 nexus-publish-plugin = '2.0.0'
-shadow-plugin = '8.1.1'
+shadow-plugin = '8.3.1'
 versions-plugin = '0.51.0'
 
 [libraries]
@@ -27,5 +27,5 @@ r8 = { module = "com.android.tools:r8", version.ref = "r8" }
 
 [plugins]
 nexus-publish = { id = "io.github.gradle-nexus.publish-plugin", version.ref = "nexus-publish-plugin" }
-shadow = { id = "com.github.johnrengelman.shadow", version.ref = "shadow-plugin" }
+shadow = { id = "com.gradleup.shadow", version.ref = "shadow-plugin" }
 versions = { id = "com.github.ben-manes.versions", version.ref = "versions-plugin" }

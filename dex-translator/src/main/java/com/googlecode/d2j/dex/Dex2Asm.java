@@ -564,6 +564,7 @@ public class Dex2Asm {
             ClzCtx clzCtx = new ClzCtx();
             clzCtx.classDescriptor = classNode.className;
             for (DexMethodNode methodNode : classNode.methods) {
+                DexFix.fixTooLongStringConstant(methodNode);
                 convertMethod(classNode, methodNode, cv, clzCtx);
             }
             if (clzCtx.hexDecodeMethodNamePrefix != null) {

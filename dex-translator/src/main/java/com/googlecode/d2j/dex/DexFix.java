@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 1. Dex omits the value of static-final filed if it is the default value.
+ * 1. Dex omits the value of static-final field if it is the default value.
  * <p>
  * 2. static-final field init by zero, but assigned in clinit
  * <p>
@@ -120,6 +120,12 @@ public final class DexFix {
 
     }
 
+    /**
+     * Target: Method
+     * <p>
+     *     Fixes too long strings not being translated correctly
+     * </p>
+     */
     public static void fixTooLongStringConstant(final DexMethodNode methodNode) {
         if ((methodNode.access & 0x100) != 0 || (methodNode.access & 0x400) != 0) {
             return; // in case of unimplemented method
@@ -160,7 +166,9 @@ public final class DexFix {
                     ));
 
                     for (String part : parts) {
+                        // const-string v1 "xxx"
                         generatedStringConcat.add(new ConstStmtNode(Op.CONST_STRING, register + 1, part));
+                        // invoke-virtual {v0, v1}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
                         generatedStringConcat.add(new MethodStmtNode(
                                 Op.INVOKE_VIRTUAL,
                                 new int[]{register, register + 1},
@@ -169,6 +177,7 @@ public final class DexFix {
                         ));
                     }
 
+                    // invoke-virtual {v0}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
                     generatedStringConcat.add(new MethodStmtNode(
                             Op.INVOKE_VIRTUAL,
                             new int[]{register},
@@ -176,12 +185,14 @@ public final class DexFix {
                                     new String[]{}, "Ljava/lang/String;")
                     ));
 
+                    // move-result-object v0
                     generatedStringConcat.add(new Stmt1RNode(Op.MOVE_RESULT_OBJECT, register));
 
                     toBeReplaced.put(insn, generatedStringConcat);
                     maxRegister.set(Math.max(register + 1, maxRegister.get()));
                 }
             });
+
             methodNode.codeNode.totalRegister = maxRegister.get();
             toBeReplaced.keySet().forEach(i -> {
                 int index = methodNode.codeNode.stmts.indexOf(i);

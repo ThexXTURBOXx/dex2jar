@@ -85,26 +85,26 @@ public final class DexFix {
                     @Override
                     public void visitFieldStmt(Op op, int a, int b, Field field) {
                         switch (op) {
-                            case SPUT:
-                            case SPUT_BOOLEAN:
-                            case SPUT_BYTE:
-                            case SPUT_CHAR:
-                            case SPUT_OBJECT:
-                            case SPUT_SHORT:
-                            case SPUT_WIDE:
-                                if (field.getOwner().equals(classNode.className)) {
-                                    String key = field.getName() + ":" + field.getType();
-                                    fs.remove(key);
-                                    DexFieldNode dn = shouldNotBeAssigned.get(key);
-                                    if (dn != null) {
-                                        //System.out.println(field.getName() + ":" + field.getType());
-                                        dn.cst = null;
-                                    }
+                        case SPUT:
+                        case SPUT_BOOLEAN:
+                        case SPUT_BYTE:
+                        case SPUT_CHAR:
+                        case SPUT_OBJECT:
+                        case SPUT_SHORT:
+                        case SPUT_WIDE:
+                            if (field.getOwner().equals(classNode.className)) {
+                                String key = field.getName() + ":" + field.getType();
+                                fs.remove(key);
+                                DexFieldNode dn = shouldNotBeAssigned.get(key);
+                                if (dn != null) {
+                                    //System.out.println(field.getName() + ":" + field.getType());
+                                    dn.cst = null;
                                 }
-                                break;
-                            default:
-                                // ignored
-                                break;
+                            }
+                            break;
+                        default:
+                            // ignored
+                            break;
                         }
                     }
                 });
@@ -123,7 +123,7 @@ public final class DexFix {
     /**
      * Target: Method
      * <p>
-     *     Fixes too long strings not being translated correctly
+     * Fixes too long strings not being translated correctly
      * </p>
      */
     public static void fixTooLongStringConstant(final DexMethodNode methodNode) {
@@ -136,8 +136,8 @@ public final class DexFix {
             AtomicInteger maxRegister = new AtomicInteger(methodNode.codeNode.totalRegister);
             methodNode.codeNode.stmts.forEach(insn -> {
                 if (insn instanceof ConstStmtNode &&
-                        (insn.op == Op.CONST_STRING || insn.op == Op.CONST_STRING_JUMBO) &&
-                        ((ConstStmtNode) insn).value instanceof String) {
+                    (insn.op == Op.CONST_STRING || insn.op == Op.CONST_STRING_JUMBO) &&
+                    ((ConstStmtNode) insn).value instanceof String) {
                     String s = (String) ((ConstStmtNode) insn).value;
                     int register = ((ConstStmtNode) insn).a;
 
@@ -168,7 +168,8 @@ public final class DexFix {
                     for (String part : parts) {
                         // const-string v1 "xxx"
                         generatedStringConcat.add(new ConstStmtNode(Op.CONST_STRING, register + 1, part));
-                        // invoke-virtual {v0, v1}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+                        // invoke-virtual {v0, v1}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)
+                        // Ljava/lang/StringBuilder;
                         generatedStringConcat.add(new MethodStmtNode(
                                 Op.INVOKE_VIRTUAL,
                                 new int[]{register, register + 1},
@@ -204,52 +205,52 @@ public final class DexFix {
 
     private static Object getDefaultValueOfType(char t) {
         switch (t) {
-            case 'B':
-                return (byte) 0;
-            case 'Z':
-                return Boolean.FALSE;
-            case 'S':
-                return (short) 0;
-            case 'C':
-                return (char) 0;
-            case 'I':
-                return 0;
-            case 'F':
-                return (float) 0.0;
-            case 'J':
-                return 0L;
-            case 'D':
-                return 0.0;
-            case '[':
-            case 'L':
-            default:
-                return null;
-            // impossible
+        case 'B':
+            return (byte) 0;
+        case 'Z':
+            return Boolean.FALSE;
+        case 'S':
+            return (short) 0;
+        case 'C':
+            return (char) 0;
+        case 'I':
+            return 0;
+        case 'F':
+            return (float) 0.0;
+        case 'J':
+            return 0L;
+        case 'D':
+            return 0.0;
+        case '[':
+        case 'L':
+        default:
+            return null;
+        // impossible
         }
     }
 
     static boolean isPrimitiveZero(String desc, Object value) {
         if (value != null && desc != null && !desc.isEmpty()) {
             switch (desc.charAt(0)) {
-                // case 'V':// VOID_TYPE
-                case 'Z':// BOOLEAN_TYPE
-                    return !((Boolean) value);
-                case 'C':// CHAR_TYPE
-                    return (Character) value == (char) 0;
-                case 'B':// BYTE_TYPE
-                    return (Byte) value == 0;
-                case 'S':// SHORT_TYPE
-                    return (Short) value == 0;
-                case 'I':// INT_TYPE
-                    return (Integer) value == 0;
-                case 'F':// FLOAT_TYPE
-                    return (Float) value == 0f;
-                case 'J':// LONG_TYPE
-                    return (Long) value == 0L;
-                case 'D':// DOUBLE_TYPE
-                    return (Double) value == 0.0;
-                default:
-                    break;
+            // case 'V':// VOID_TYPE
+            case 'Z':// BOOLEAN_TYPE
+                return !((Boolean) value);
+            case 'C':// CHAR_TYPE
+                return (Character) value == (char) 0;
+            case 'B':// BYTE_TYPE
+                return (Byte) value == 0;
+            case 'S':// SHORT_TYPE
+                return (Short) value == 0;
+            case 'I':// INT_TYPE
+                return (Integer) value == 0;
+            case 'F':// FLOAT_TYPE
+                return (Float) value == 0f;
+            case 'J':// LONG_TYPE
+                return (Long) value == 0L;
+            case 'D':// DOUBLE_TYPE
+                return (Double) value == 0.0;
+            default:
+                break;
             }
         }
         return false;

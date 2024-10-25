@@ -7,10 +7,13 @@ import com.googlecode.d2j.node.DexClassNode;
 import com.googlecode.d2j.node.DexFieldNode;
 import com.googlecode.d2j.node.DexFileNode;
 import com.googlecode.d2j.node.DexMethodNode;
-import com.googlecode.d2j.node.insn.*;
+import com.googlecode.d2j.node.insn.ConstStmtNode;
+import com.googlecode.d2j.node.insn.DexStmtNode;
+import com.googlecode.d2j.node.insn.MethodStmtNode;
+import com.googlecode.d2j.node.insn.Stmt1RNode;
+import com.googlecode.d2j.node.insn.TypeStmtNode;
 import com.googlecode.d2j.reader.Op;
 import com.googlecode.d2j.visitors.DexCodeVisitor;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -127,7 +130,7 @@ public final class DexFix {
      * </p>
      */
     public static void fixTooLongStringConstant(final DexMethodNode methodNode) {
-        if ((methodNode.access & 0x100) != 0 || (methodNode.access & 0x400) != 0) {
+        if ((methodNode.access & DexConstants.ACC_NATIVE) != 0 || (methodNode.access & DexConstants.ACC_ABSTRACT) != 0) {
             return; // in case of unimplemented method
         }
 

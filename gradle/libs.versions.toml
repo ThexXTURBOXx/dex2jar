@@ -1,14 +1,14 @@
 [versions]
 antlr3 = '3.5.3'
 antlr4 = '4.13.2'
-asm = '9.7'
+asm = '9.7.1'
 smali = '3.0.8'
 commons-compress = '1.27.1'
-junit = '5.11.0'
-junit-platform = '1.11.0'
+junit = '5.11.3'
+junit-platform = '1.11.3'
 r8 = '4.0.63' # Newer versions only for Java 11+
 nexus-publish-plugin = '2.0.0'
-shadow-plugin = '8.3.1'
+shadow-plugin = '8.3.3'
 versions-plugin = '0.51.0'
 
 [libraries]

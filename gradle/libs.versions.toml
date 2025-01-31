@@ -2,14 +2,14 @@
 antlr3 = '3.5.3'
 antlr4 = '4.13.2'
 asm = '9.7.1'
-smali = '3.0.8'
+smali = '3.0.9'
 commons-compress = '1.27.1'
-junit = '5.11.3'
-junit-platform = '1.11.3'
+junit = '5.11.4'
+junit-platform = '1.11.4'
 r8 = '4.0.63' # Newer versions only for Java 11+
 nexus-publish-plugin = '2.0.0'
-shadow-plugin = '8.3.3'
-versions-plugin = '0.51.0'
+shadow-plugin = '8.3.5'
+versions-plugin = '0.52.0'
 
 [libraries]
 antlr3 = { module = "org.antlr:antlr", version.ref = "antlr3" }

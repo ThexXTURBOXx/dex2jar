@@ -138,8 +138,9 @@ public final class Dex2jar {
                         }
                         try {
                             if (baos != null) {
-                                baos.write(ByteBuffer.allocate(4).putInt(className.length()).array());
-                                baos.write(className.getBytes(StandardCharsets.UTF_8));
+                                byte[] classNameBytes = className.getBytes(StandardCharsets.UTF_8);
+                                baos.write(ByteBuffer.allocate(4).putInt(classNameBytes.length).array());
+                                baos.write(classNameBytes);
                                 baos.write(ByteBuffer.allocate(4).putInt(data.length).array());
                                 baos.write(data);
                             }

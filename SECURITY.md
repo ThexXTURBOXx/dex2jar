@@ -13,5 +13,5 @@ issues, they should also be tested with this version.
 Send me an email: nico.mexis@kabelmail.de
 
 I will try to respond to you as soon as possible (sometimes, it could
-take some days, but I *will* contact you back; I have university and
-am maintaining this fork in my free time).
+take some days, but I *will* contact you back; I have full-time work and
+am maintaining this fork in my spare time).

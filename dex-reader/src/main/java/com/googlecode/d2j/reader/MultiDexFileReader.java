@@ -110,6 +110,7 @@ public class MultiDexFileReader implements BaseDexFileReader {
 
     @Override
     public void accept(DexFileVisitor dv, int config) {
+        dv.visitDexFileVersion(getDexVersion());
         int size = items.size();
         for (int i = 0; i < size; i++) {
             accept(dv, i, config);

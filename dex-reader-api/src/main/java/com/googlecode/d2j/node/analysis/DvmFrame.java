@@ -32,10 +32,9 @@ public class DvmFrame<V> {
 
 
     public void setReg(int i, V v) {
-        if (i > values.length || i < 0) {
-            return;
+        if (i >= 0 && i < values.length) {
+            values[i] = v;
         }
-        values[i] = v;
     }
 
     public DvmFrame<V> init(DvmFrame<? extends V> src) {

@@ -406,7 +406,7 @@ public class DvmFrame<V> {
     }
 
     public V getReg(int b) {
-        if (b > values.length || b < 0) {
+        if (b >= values.length || b < 0) {
             return null;
         }
         return values[b];

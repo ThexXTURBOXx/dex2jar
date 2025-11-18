@@ -107,7 +107,7 @@ public class InvocationWeaver extends BaseWeaver implements Opcodes {
 
     private static final Type OBJECT_TYPE = Type.getType(Object.class);
 
-    private final Remapper remapper = new Remapper() {
+    private final Remapper remapper = new Remapper(Constants.ASM_VERSION) {
 
         @Override
         public String mapDesc(String desc) {
@@ -310,8 +310,8 @@ public class InvocationWeaver extends BaseWeaver implements Opcodes {
                 } else {
                     n.desc = "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;";
                 }
-                MethodVisitor mv = cv.visitMethod(opcode == INVOKESPECIAL ? ACC_PUBLIC : ACC_PUBLIC
-                        | ACC_STATIC, n.name, n.desc, null, null);
+                MethodVisitor mv = cv.visitMethod(opcode == INVOKESPECIAL ? ACC_PUBLIC : ACC_PUBLIC | ACC_STATIC,
+                        n.name, n.desc, null, null);
                 mv.visitCode();
                 int start;
                 if (opcode != INVOKESTATIC) {
@@ -451,18 +451,18 @@ public class InvocationWeaver extends BaseWeaver implements Opcodes {
                             if (isStatic) {
                                 if (!Arrays.deepEquals(orgArgs, nArgs)) {
                                     throw new RuntimeException("arguments not equal: " + owner + "." + name + desc
-                                            + " <> " + mapTo.owner + "." + mapTo.name + mapTo.desc);
+                                                               + " <> " + mapTo.owner + "." + mapTo.name + mapTo.desc);
                                 }
                             } else {
                                 if (nArgs.length != orgArgs.length + 1) {
                                     throw new RuntimeException("arguments not equal: " + owner + "." + name + desc
-                                            + " <> " + mapTo.owner + "." + mapTo.name + mapTo.desc);
+                                                               + " <> " + mapTo.owner + "." + mapTo.name + mapTo.desc);
                                 }
                                 if (orgArgs.length > 0) {
                                     for (int i = 0; i < orgArgs.length; i++) {
                                         if (!orgArgs[i].equals(nArgs[i + 1])) {
                                             throw new RuntimeException("arguments not equal: " + owner + "." + name
-                                                    + desc + " <> " + mapTo.owner + "." + mapTo.name + mapTo.desc);
+                                                                       + desc + " <> " + mapTo.owner + "." + mapTo.name + mapTo.desc);
                                         }
                                     }
                                 }
@@ -479,6 +479,7 @@ public class InvocationWeaver extends BaseWeaver implements Opcodes {
                 }
 
                 @Override
+                @SuppressWarnings("deprecation")
                 public void visitMethodInsn(int opcode, String owner, String name, String desc) {
                     visitMethodInsn(opcode, owner, name, desc, opcode == INVOKEINTERFACE);
                 }
@@ -514,7 +515,7 @@ public class InvocationWeaver extends BaseWeaver implements Opcodes {
                             Files.write(targetPath, baos.toByteArray());
                         }
                     } else if (!relative.endsWith(".DSA") && !relative.endsWith(".RSA")
-                            && !relative.endsWith(".SF") && !relative.endsWith(".ECDSA")) {
+                               && !relative.endsWith(".SF") && !relative.endsWith(".ECDSA")) {
                         Files.copy(file, targetPath);
                     } /* else {
                         // ignored

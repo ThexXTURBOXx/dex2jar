@@ -8,7 +8,7 @@ public final class Constants {
         throw new UnsupportedOperationException();
     }
 
-    public static final int MAX_JAVA_VERSION = 24;
+    public static final int MAX_JAVA_VERSION = 26;
 
     public static final int[] JAVA_VERSIONS = new int[]{
             0,
@@ -36,6 +36,8 @@ public final class Constants {
             Opcodes.V22,
             Opcodes.V23,
             Opcodes.V24,
+            Opcodes.V25,
+            Opcodes.V26,
     };
 
     public static final int ASM_VERSION = Opcodes.ASM9;

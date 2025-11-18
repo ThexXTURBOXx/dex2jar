@@ -395,6 +395,7 @@ public class EncodedValue implements Comparable<EncodedValue> {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public int compareTo(EncodedValue o) {
         if (o == null) {
             return 1;

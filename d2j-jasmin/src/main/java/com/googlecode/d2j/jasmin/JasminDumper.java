@@ -377,6 +377,7 @@ public class JasminDumper implements Opcodes {
                         }
 
                         @Override
+                        @SuppressWarnings("deprecation")
                         public void visitMethodInsn(int opcode, String owner, String name, String desc) {
                             visitMethodInsn(opcode, owner, name, desc, opcode == INVOKEINTERFACE);
                         }

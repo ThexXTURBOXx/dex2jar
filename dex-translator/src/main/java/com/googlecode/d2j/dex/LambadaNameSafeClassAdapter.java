@@ -2,6 +2,7 @@ package com.googlecode.d2j.dex;
 
 import com.googlecode.dex2jar.tools.Constants;
 import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.commons.ClassRemapper;
 import org.objectweb.asm.commons.Remapper;
 
@@ -27,8 +28,8 @@ public class LambadaNameSafeClassAdapter extends ClassRemapper {
     }
 
     public LambadaNameSafeClassAdapter(ClassVisitor cv, boolean dontSanitizeNames) {
-        super(Constants.ASM_VERSION, cv, dontSanitizeNames ? new Remapper() {
-        } : new Remapper() {
+        super(Constants.ASM_VERSION, cv, dontSanitizeNames ? new Remapper(Constants.ASM_VERSION) {
+        } : new Remapper(Constants.ASM_VERSION) {
             @Override
             public String mapType(String type) {
                 return super.mapType(fixName(type));
@@ -55,8 +56,10 @@ public class LambadaNameSafeClassAdapter extends ClassRemapper {
             }
 
             @Override
-            public String mapInvokeDynamicMethodName(String name, String descriptor) {
-                return super.mapInvokeDynamicMethodName(fixName(name), descriptor);
+            public String mapInvokeDynamicMethodName(String name, String descriptor, Handle bootstrapMethodHandle,
+                                                     Object... bootstrapMethodArguments) {
+                return super.mapInvokeDynamicMethodName(fixName(name), fixName(descriptor), bootstrapMethodHandle,
+                        bootstrapMethodArguments);
             }
 
             @Override

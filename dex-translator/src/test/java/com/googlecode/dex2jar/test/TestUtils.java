@@ -180,6 +180,7 @@ public abstract class TestUtils {
         }
     }
 
+    @SuppressWarnings({"rawtypes", "unchecked"})
     static <T extends Value> void printAnalyzerResult(MethodNode method, Analyzer<T> a, final PrintWriter pw)
             throws IllegalArgumentException, IllegalAccessException {
         Frame[] frames = a.getFrames();

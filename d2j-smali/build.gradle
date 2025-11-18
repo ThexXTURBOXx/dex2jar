@@ -16,7 +16,8 @@ dependencies {
 }
 
 generateGrammarSource {
-    arguments += ['-no-listener', '-visitor', '-package', 'com.googlecode.d2j.smali.antlr4']
+    arguments += ['-no-listener', '-visitor']
+    packageName = 'com.googlecode.d2j.smali.antlr4'
 }
 
 sourceSets {

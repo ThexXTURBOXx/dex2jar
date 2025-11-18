@@ -40,6 +40,8 @@ dependencies {
     {
         options.encoding = 'UTF-8'
         options.release.set(javaVersion.majorVersion.toInteger())
+        options.compilerArgs << "-Xlint:unchecked"
+        options.deprecation = true
     }
 }
 

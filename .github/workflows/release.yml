@@ -39,8 +39,8 @@ jobs:
         uses: actions/upload-artifact@v7
         if: success()
         with:
-          name: dex-tools
           path: dex-tools/build/distributions/dex-tools-*.zip
+          archive: false
 
       - name: Publish to Maven Central
         run: ./gradlew -Pversion=2.4.${{ github.run_number }} publish closeAndReleaseStagingRepositories

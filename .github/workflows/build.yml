@@ -34,5 +34,5 @@ jobs:
         uses: actions/upload-artifact@v7
         if: success()
         with:
-          name: dex-tools
           path: dex-tools/build/distributions/dex-tools-*.zip
+          archive: false

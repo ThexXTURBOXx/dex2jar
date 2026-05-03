@@ -155,7 +155,7 @@ public class NewTransformer implements Transformer {
             InvokeExpr ie = findInvokeExpr(obj.invokeStmt);
             Value[] orgOps = ie.getOps();
             Value[] nOps = Arrays.copyOfRange(orgOps, 1, orgOps.length);
-            InvokeExpr invokeNew = Exprs.nInvokeNew(nOps, ie.getArgs(), ((NewExpr) obj.init.getOp2()).type);
+            InvokeExpr invokeNew = Exprs.nInvokeNew(nOps, ie.getArgs(), ie.getOwner());
             method.stmts.replace(obj.invokeStmt, Stmts.nAssign(obj.local, invokeNew));
         }
     }
@@ -344,6 +344,8 @@ public class NewTransformer implements Transformer {
                 keep = false;
             }
             if (obj.invokeStmt == null) {
+                keep = false;
+            } else if (!findInvokeExpr(obj.invokeStmt).getOwner().equals(((NewExpr) obj.init.getOp2()).type)) {
                 keep = false;
             }
             if (!keep) {

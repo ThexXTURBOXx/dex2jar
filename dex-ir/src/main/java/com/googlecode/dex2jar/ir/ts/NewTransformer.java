@@ -155,7 +155,7 @@ public class NewTransformer implements Transformer {
             InvokeExpr ie = findInvokeExpr(obj.invokeStmt);
             Value[] orgOps = ie.getOps();
             Value[] nOps = Arrays.copyOfRange(orgOps, 1, orgOps.length);
-            InvokeExpr invokeNew = Exprs.nInvokeNew(nOps, ie.getArgs(), ie.getOwner());
+            InvokeExpr invokeNew = Exprs.nInvokeNew(nOps, ie.getArgs(), ((NewExpr) obj.init.getOp2()).type);
             method.stmts.replace(obj.invokeStmt, Stmts.nAssign(obj.local, invokeNew));
         }
     }

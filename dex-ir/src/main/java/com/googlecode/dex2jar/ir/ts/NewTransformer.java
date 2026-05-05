@@ -345,6 +345,8 @@ public class NewTransformer implements Transformer {
             }
             if (obj.invokeStmt == null) {
                 keep = false;
+            } else if (!findInvokeExpr(obj.invokeStmt).getOwner().equals(((NewExpr) obj.init.getOp2()).type)) {
+                keep = false;
             }
             if (!keep) {
                 iterator.remove();

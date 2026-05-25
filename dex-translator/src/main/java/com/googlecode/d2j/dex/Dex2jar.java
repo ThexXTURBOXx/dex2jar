@@ -9,6 +9,7 @@ import com.googlecode.d2j.reader.MultiDexFileReader;
 import com.googlecode.dex2jar.ir.IrMethod;
 import com.googlecode.dex2jar.ir.stmt.LabelStmt;
 import com.googlecode.dex2jar.ir.stmt.Stmt;
+import com.googlecode.dex2jar.ir.ts.ConstructorGenerator;
 import com.googlecode.dex2jar.tools.Constants;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -165,16 +166,17 @@ public final class Dex2jar {
         };
 
         new ExDex2Asm(exceptionHandler) {
-            public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx) {
+            @Override
+            public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx, ConstructorGenerator constructorGenerator) {
                 if ((readerConfig & DexFileReader.SKIP_CODE) != 0 && methodNode.method.getName().equals("<clinit>")) {
                     // also skip clinit
                     return;
                 }
-                super.convertCode(methodNode, mv, clzCtx);
+                super.convertCode(methodNode, mv, clzCtx, constructorGenerator);
             }
 
             @Override
-            public void optimize(IrMethod irMethod) {
+            public void optimize(IrMethod irMethod, ConstructorGenerator constructorGenerator) {
                 T_CLEAN_LABEL.transform(irMethod);
                 /*if (0 != (v3Config & V3.TOPOLOGICAL_SORT)) {
                     // T_topologicalSort.transform(irMethod);
@@ -188,7 +190,7 @@ public final class Dex2jar {
                     T_REMOVE_LOCAL.transform(irMethod);
                     T_REMOVE_CONST.transform(irMethod);
                 }
-                T_NEW.transform(irMethod);
+                T_NEW.transform(irMethod, constructorGenerator);
                 T_FILL_ARRAY.transform(irMethod);
                 T_AGG.transform(irMethod);
                 T_MULTI_ARRAY.transform(irMethod);

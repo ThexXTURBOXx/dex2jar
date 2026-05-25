@@ -9,27 +9,12 @@ import com.googlecode.d2j.Proto;
 import com.googlecode.d2j.Visibility;
 import com.googlecode.d2j.converter.Dex2IRConverter;
 import com.googlecode.d2j.converter.IR2JConverter;
-import com.googlecode.d2j.node.DexAnnotationNode;
-import com.googlecode.d2j.node.DexClassNode;
-import com.googlecode.d2j.node.DexFieldNode;
-import com.googlecode.d2j.node.DexFileNode;
-import com.googlecode.d2j.node.DexMethodNode;
+import com.googlecode.d2j.node.*;
+import com.googlecode.d2j.node.insn.MethodStmtNode;
+import com.googlecode.d2j.node.insn.Stmt0RNode;
+import com.googlecode.d2j.reader.Op;
 import com.googlecode.dex2jar.ir.IrMethod;
-import com.googlecode.dex2jar.ir.ts.AggTransformer;
-import com.googlecode.dex2jar.ir.ts.CleanLabel;
-import com.googlecode.dex2jar.ir.ts.DeadCodeTransformer;
-import com.googlecode.dex2jar.ir.ts.EndRemover;
-import com.googlecode.dex2jar.ir.ts.ExceptionHandlerTrim;
-import com.googlecode.dex2jar.ir.ts.Ir2JRegAssignTransformer;
-import com.googlecode.dex2jar.ir.ts.MultiArrayTransformer;
-import com.googlecode.dex2jar.ir.ts.NewTransformer;
-import com.googlecode.dex2jar.ir.ts.NpeTransformer;
-import com.googlecode.dex2jar.ir.ts.RemoveConstantFromSSA;
-import com.googlecode.dex2jar.ir.ts.RemoveLocalFromSSA;
-import com.googlecode.dex2jar.ir.ts.TypeTransformer;
-import com.googlecode.dex2jar.ir.ts.UnSSATransformer;
-import com.googlecode.dex2jar.ir.ts.VoidInvokeTransformer;
-import com.googlecode.dex2jar.ir.ts.ZeroTransformer;
+import com.googlecode.dex2jar.ir.ts.*;
 import com.googlecode.dex2jar.ir.ts.array.FillArrayTransformer;
 import com.googlecode.dex2jar.tools.Constants;
 import java.io.InputStream;
@@ -43,6 +28,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.Stack;
+import java.util.stream.IntStream;
+
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -433,7 +420,7 @@ public class Dex2Asm {
     }
 
     public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf, DexFileNode fileNode) {
-        convertClass(fileNode.dexVersion, classNode, cvf, collectClzInfo(fileNode));
+        convertClass(fileNode.dexVersion, classNode, cvf, collectClzInfo(fileNode), null);
     }
 
     public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf) {
@@ -441,7 +428,7 @@ public class Dex2Asm {
     }
 
     public void convertClass(int dexVersion, DexClassNode classNode, ClassVisitorFactory cvf) {
-        convertClass(dexVersion, classNode, cvf, new HashMap<>());
+        convertClass(dexVersion, classNode, cvf, new HashMap<>(), null);
     }
 
     private static boolean isJavaIdentifier(String str) {
@@ -460,19 +447,36 @@ public class Dex2Asm {
     }
 
     public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf, Map<String, Clz> classes) {
-        convertClass(DexConstants.DEX_035, classNode, cvf, classes);
+        convertClass(DexConstants.DEX_035, classNode, cvf, classes, null);
     }
 
     public void convertClass(DexFileNode dfn, DexClassNode classNode, ClassVisitorFactory cvf,
                              Map<String, Clz> classes) {
-        convertClass(dfn.dexVersion, classNode, cvf, classes);
+        convertClass(dfn.dexVersion, classNode, cvf, classes, null);
+    }
+
+    protected ClassVisitor convertClass(DexClassNode classNode, ClassVisitorFactory cvf, Map<String, Clz> classes, ConstructorGenerator constructorGenerator) {
+        return convertClass(DexConstants.DEX_035, classNode, cvf, classes, constructorGenerator);
+    }
+
+    protected ClassVisitor convertClass(DexFileNode dfn, DexClassNode classNode, ClassVisitorFactory cvf,
+                             Map<String, Clz> classes, ConstructorGenerator constructorGenerator) {
+        return convertClass(dfn.dexVersion, classNode, cvf, classes, constructorGenerator);
     }
 
     public void convertClass(int dexVersion, DexClassNode classNode, ClassVisitorFactory cvf,
                              Map<String, Clz> classes) {
+        ClassVisitor cv = convertClass(dexVersion, classNode, cvf, classes, null);
+        if (cv != null) {
+            cv.visitEnd();
+        }
+    }
+
+    protected ClassVisitor convertClass(int dexVersion, DexClassNode classNode, ClassVisitorFactory cvf,
+                             Map<String, Clz> classes, ConstructorGenerator constructorGenerator) {
         ClassVisitor cv = cvf.create(toInternalName(classNode.className));
         if (cv == null) {
-            return;
+            return null;
         }
         // the default value of static-final field are omitted by dex, fix it
         DexFix.fixStaticFinalFieldValue(classNode);
@@ -565,14 +569,14 @@ public class Dex2Asm {
             clzCtx.classDescriptor = classNode.className;
             for (DexMethodNode methodNode : classNode.methods) {
                 DexFix.fixTooLongStringConstant(methodNode);
-                convertMethod(classNode, methodNode, cv, clzCtx);
+                convertMethod(classNode, methodNode, cv, clzCtx, constructorGenerator);
             }
             if (clzCtx.hexDecodeMethodNamePrefix != null) {
                 addHexDecodeMethod(cv, classNode.className.replaceFirst("^L", "").replaceAll(";$", ""),
                         clzCtx.hexDecodeMethodNamePrefix);
             }
         }
-        cv.visitEnd();
+        return cv;
     }
 
     private static final String HEX_CLASS_LOCATION = "res/Hex";
@@ -621,17 +625,28 @@ public class Dex2Asm {
         }
     }
 
-    public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx) {
+    public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx, ConstructorGenerator constructorGenerator) {
         IrMethod irMethod = dex2ir(methodNode);
-        optimize(irMethod);
+        optimize(irMethod, constructorGenerator);
         ir2j(irMethod, mv, clzCtx);
     }
 
     public void convertDex(DexFileNode fileNode, ClassVisitorFactory cvf) {
         if (fileNode.clzs != null) {
-            Map<String, Clz> classes = collectClzInfo(fileNode);
+            final Map<String, Clz> classes = collectClzInfo(fileNode);
+            final ConstructorGenerator constructorGenerator = new ConstructorGenerator();
+            final Map<String, ClassVisitor> classVisitors = new HashMap<>(classes.size());
+
             for (DexClassNode classNode : fileNode.clzs) {
-                convertClass(fileNode, classNode, cvf, classes);
+                classVisitors.put(classNode.className, convertClass(fileNode, classNode, cvf, classes, constructorGenerator));
+            }
+
+            if (!constructorGenerator.isEmpty()) {
+                insertConstructors(fileNode.clzs, classVisitors, constructorGenerator);
+            }
+
+            for (ClassVisitor cv : classVisitors.values()) {
+                cv.visitEnd();
             }
         }
     }
@@ -772,7 +787,7 @@ public class Dex2Asm {
         return h;
     }
 
-    public void convertMethod(DexClassNode classNode, DexMethodNode methodNode, ClassVisitor cv, ClzCtx clzCtx) {
+    public void convertMethod(DexClassNode classNode, DexMethodNode methodNode, ClassVisitor cv, ClzCtx clzCtx, ConstructorGenerator constructorGenerator) {
 
         MethodVisitor mv = collectBasicMethodInfo(methodNode, cv);
 
@@ -819,7 +834,7 @@ public class Dex2Asm {
         if ((NO_CODE_MASK & methodNode.access) == 0) { // has code
             if (methodNode.codeNode != null) {
                 mv.visitCode();
-                convertCode(methodNode, mv, clzCtx);
+                convertCode(methodNode, mv, clzCtx, constructorGenerator);
             }
         }
 
@@ -860,7 +875,7 @@ public class Dex2Asm {
         mv.visitMaxs(-1, -1);
     }
 
-    public void optimize(IrMethod irMethod) {
+    public void optimize(IrMethod irMethod, ConstructorGenerator constructorGenerator) {
         T_CLEAN_LABEL.transform(irMethod);
         T_DEAD_CODE.transform(irMethod);
         T_REMOVE_LOCAL.transform(irMethod);
@@ -871,7 +886,7 @@ public class Dex2Asm {
             T_REMOVE_LOCAL.transform(irMethod);
             T_REMOVE_CONST.transform(irMethod);
         }
-        T_NEW.transform(irMethod);
+        T_NEW.transform(irMethod, constructorGenerator);
         T_FILL_ARRAY.transform(irMethod);
         T_AGG.transform(irMethod);
         T_MULTI_ARRAY.transform(irMethod);
@@ -889,6 +904,38 @@ public class Dex2Asm {
         T_UNSSA.transform(irMethod);
         T_TRIM_EX.transform(irMethod);
         T_IR_2_J_REG_ASSIGN.transform(irMethod);
+    }
+
+    protected void insertConstructors(List<DexClassNode> classNodeList, Map<String, ClassVisitor> classes, ConstructorGenerator constructorGenerator) {
+        for (Map.Entry<ConstructorGenerator.ConstructorPair, String> pair : constructorGenerator.entries()) {
+            DexClassNode klass = classNodeList.stream()
+                    .filter(x -> x.className.equals(pair.getKey().getOwner()))
+                    .findFirst()
+                    .orElseThrow(() -> new RuntimeException("No class found for constructor " + pair.getKey().getOwner()));
+
+            Method constructorMethod = new Method(pair.getKey().getOwner(), "<init>", pair.getKey().getParameterTypes(), "V");
+            Method superMethod = new Method(pair.getValue(), "<init>", pair.getKey().getParameterTypes(), "V");
+            int[] callArgs = new int[pair.getKey().getParameterTypes().length + 1];
+            Arrays.setAll(callArgs, i -> i);
+
+            DexCodeNode constructorCode = new DexCodeNode();
+            constructorCode.totalRegister = callArgs.length;
+            MethodStmtNode superCallNode = new MethodStmtNode(Op.INVOKE_DIRECT, callArgs, superMethod);
+            constructorCode.stmts.add(superCallNode);
+            Stmt0RNode returnNode = new Stmt0RNode(Op.RETURN_VOID);
+            constructorCode.stmts.add(returnNode);
+            DexMethodNode newConstructor = new DexMethodNode(DexConstants.ACC_PUBLIC | DexConstants.ACC_CONSTRUCTOR, constructorMethod);
+            newConstructor.codeNode = constructorCode;
+            if (klass.methods == null) {
+                klass.methods = new ArrayList<>();
+            }
+            klass.methods.add(newConstructor);
+
+            ClassVisitor cv = classes.get(klass.className);
+            ClzCtx clzCtx = new ClzCtx();
+            clzCtx.classDescriptor = klass.className;
+            convertMethod(klass, newConstructor, cv, clzCtx, null);
+        }
     }
 
     /**

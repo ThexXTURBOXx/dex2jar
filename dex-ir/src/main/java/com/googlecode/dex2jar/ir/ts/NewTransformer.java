@@ -12,13 +12,8 @@ import com.googlecode.dex2jar.ir.stmt.AssignStmt;
 import com.googlecode.dex2jar.ir.stmt.LabelStmt;
 import com.googlecode.dex2jar.ir.stmt.Stmt;
 import com.googlecode.dex2jar.ir.stmt.Stmts;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+
+import java.util.*;
 
 import static com.googlecode.dex2jar.ir.expr.Value.VT.INVOKE_SPECIAL;
 import static com.googlecode.dex2jar.ir.expr.Value.VT.LOCAL;
@@ -49,7 +44,10 @@ public class NewTransformer implements Transformer {
 
     @Override
     public void transform(IrMethod method) {
+        transform(method, null);
+    }
 
+    public void transform(IrMethod method, ConstructorGenerator constructorGenerator) {
         // 1. replace
         // =========
         // a=NEW Abc;
@@ -59,14 +57,13 @@ public class NewTransformer implements Transformer {
         // a=new Abc();
         // b=a;
         // =========
-        replaceX(method);
+        replaceX(method, constructorGenerator);
 
         // 2. replace NEW Abc;.<init>() -> new Abc();
         replaceAST(method);
-
     }
 
-    void replaceX(IrMethod method) {
+    void replaceX(IrMethod method, ConstructorGenerator constructorGenerator) {
         final Map<Local, TObject> init = new HashMap<>();
         for (Stmt p : method.stmts) {
             if (p.st == ASSIGN && p.getOp1().vt == LOCAL && p.getOp2().vt == NEW) {
@@ -80,7 +77,7 @@ public class NewTransformer implements Transformer {
             final int size = Cfg.reIndexLocal(method);
             makeSureUsedBeforeConstructor(method, init, size);
             if (!init.isEmpty()) {
-                replace0(method, init, size);
+                replace0(method, init, size, constructorGenerator);
             }
             for (Stmt stmt : method.stmts) {
                 stmt.frame = null;
@@ -112,7 +109,7 @@ public class NewTransformer implements Transformer {
         }
     }
 
-    void replace0(IrMethod method, Map<Local, TObject> init, int size) {
+    void replace0(IrMethod method, Map<Local, TObject> init, int size, ConstructorGenerator constructorGenerator) {
         Set<Local> toDelete = new HashSet<>();
 
         Local[] locals = new Local[size];
@@ -155,7 +152,14 @@ public class NewTransformer implements Transformer {
             InvokeExpr ie = findInvokeExpr(obj.invokeStmt);
             Value[] orgOps = ie.getOps();
             Value[] nOps = Arrays.copyOfRange(orgOps, 1, orgOps.length);
-            InvokeExpr invokeNew = Exprs.nInvokeNew(nOps, ie.getArgs(), ((NewExpr) obj.init.getOp2()).type);
+            String thisType = ((NewExpr) obj.init.getOp2()).type;
+            InvokeExpr invokeNew = Exprs.nInvokeNew(nOps, ie.getArgs(), thisType);
+            if (!Objects.equals(thisType, ie.getOwner())) {
+                if (constructorGenerator == null) {
+                    throw new RuntimeException("No ConstructorGenerator supplied but required for correct transformation");
+                }
+                constructorGenerator.Add(thisType, ie.getArgs(), ie.getOwner());
+            }
             method.stmts.replace(obj.invokeStmt, Stmts.nAssign(obj.local, invokeNew));
         }
     }

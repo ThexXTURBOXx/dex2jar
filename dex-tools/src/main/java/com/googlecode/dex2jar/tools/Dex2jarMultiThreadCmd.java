@@ -14,16 +14,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
+
+import com.googlecode.dex2jar.ir.ts.ConstructorGenerator;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 
@@ -132,8 +126,10 @@ public class Dex2jarMultiThreadCmd extends BaseCmd {
                 if (fileNode.clzs != null) {
                     final Map<String, Clz> classes = collectClzInfo(fileNode);
                     final List<Future<?>> results = new ArrayList<>(fileNode.clzs.size());
+                    final Map<String, ClassVisitor> classVisitors = new ConcurrentHashMap<>(classes.size());
+                    final ConstructorGenerator constructorGenerator = new ConstructorGenerator();
                     for (final DexClassNode classNode : fileNode.clzs) {
-                        results.add(executorService.submit(() -> convertClass(fileNode, classNode, cvf, classes)));
+                        results.add(executorService.submit(() -> classVisitors.put(classNode.className, convertClass(fileNode, classNode, cvf, classes, constructorGenerator))));
                     }
                     executorService.submit(() -> {
                         for (Future<?> result : results) {
@@ -143,6 +139,15 @@ public class Dex2jarMultiThreadCmd extends BaseCmd {
                                 e.printStackTrace();
                             }
                         }
+
+                        if (!constructorGenerator.isEmpty()) {
+                            insertConstructors(fileNode.clzs, classVisitors, constructorGenerator);
+                        }
+
+                        for (ClassVisitor cv : classVisitors.values()) {
+                            cv.visitEnd();
+                        }
+
                         BaksmaliBaseDexExceptionHandler exceptionHandler1 =
                                 (BaksmaliBaseDexExceptionHandler) exceptionHandler;
                         if (exceptionHandler1.hasException()) {

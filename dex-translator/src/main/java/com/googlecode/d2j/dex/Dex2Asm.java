@@ -907,14 +907,24 @@ public class Dex2Asm {
     }
 
     protected void insertConstructors(List<DexClassNode> classNodeList, Map<String, ClassVisitor> classes, ConstructorGenerator constructorGenerator) {
+        Map<ConstructorGenerator.ConstructorPair, DexClassNode> resolvedConstructors = new HashMap<>(classNodeList.size());
         for (Map.Entry<ConstructorGenerator.ConstructorPair, String> pair : constructorGenerator.entries()) {
-            DexClassNode klass = classNodeList.stream()
-                    .filter(x -> x.className.equals(pair.getKey().getOwner()))
-                    .findFirst()
-                    .orElseThrow(() -> new RuntimeException("No class found for constructor " + pair.getKey().getOwner()));
+            String owner = pair.getKey().getOwner();
+            do {
+                final String o = owner;
+                DexClassNode klass = classNodeList.stream()
+                        .filter(x -> x.className.equals(o))
+                        .findFirst()
+                        .orElseThrow(() -> new RuntimeException("No class found for constructor " + o));
+                resolvedConstructors.put(new ConstructorGenerator.ConstructorPair(owner, pair.getKey().getParameterTypes()), klass);
+                owner = klass.superClass; // recursively add constructors until the desired constructor is found
+            } while (!Objects.equals(owner, pair.getValue()));
+        }
 
+        for (Map.Entry<ConstructorGenerator.ConstructorPair, DexClassNode> pair : resolvedConstructors.entrySet()) {
+            DexClassNode klass = pair.getValue();
             Method constructorMethod = new Method(pair.getKey().getOwner(), "<init>", pair.getKey().getParameterTypes(), "V");
-            Method superMethod = new Method(pair.getValue(), "<init>", pair.getKey().getParameterTypes(), "V");
+            Method superMethod = new Method(klass.superClass, "<init>", pair.getKey().getParameterTypes(), "V");
             int[] callArgs = new int[pair.getKey().getParameterTypes().length + 1];
             Arrays.setAll(callArgs, i -> i);
 

@@ -419,16 +419,16 @@ public class Dex2Asm {
         return classes;
     }
 
-    public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf, DexFileNode fileNode) {
-        convertClass(fileNode.dexVersion, classNode, cvf, collectClzInfo(fileNode), null);
+    public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf, DexFileNode fileNode, ConstructorGenerator constructorGenerator) {
+        convertClass(fileNode.dexVersion, classNode, cvf, collectClzInfo(fileNode), constructorGenerator);
     }
 
-    public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf) {
-        convertClass(DexConstants.DEX_035, classNode, cvf);
+    public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf, ConstructorGenerator constructorGenerator) {
+        convertClass(DexConstants.DEX_035, classNode, cvf, constructorGenerator);
     }
 
-    public void convertClass(int dexVersion, DexClassNode classNode, ClassVisitorFactory cvf) {
-        convertClass(dexVersion, classNode, cvf, new HashMap<>(), null);
+    public void convertClass(int dexVersion, DexClassNode classNode, ClassVisitorFactory cvf, ConstructorGenerator constructorGenerator) {
+        convertClass(dexVersion, classNode, cvf, new HashMap<>(), constructorGenerator);
     }
 
     private static boolean isJavaIdentifier(String str) {
@@ -444,15 +444,6 @@ public class Dex2Asm {
             }
         }
         return true;
-    }
-
-    public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf, Map<String, Clz> classes) {
-        convertClass(DexConstants.DEX_035, classNode, cvf, classes, null);
-    }
-
-    public void convertClass(DexFileNode dfn, DexClassNode classNode, ClassVisitorFactory cvf,
-                             Map<String, Clz> classes) {
-        convertClass(dfn.dexVersion, classNode, cvf, classes, null);
     }
 
     protected ClassVisitor convertClass(DexClassNode classNode, ClassVisitorFactory cvf, Map<String, Clz> classes, ConstructorGenerator constructorGenerator) {

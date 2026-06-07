@@ -167,7 +167,8 @@ public final class Dex2jar {
 
         new ExDex2Asm(exceptionHandler) {
             @Override
-            public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx, ConstructorGenerator constructorGenerator) {
+            public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx,
+                                    ConstructorGenerator constructorGenerator) {
                 if ((readerConfig & DexFileReader.SKIP_CODE) != 0 && methodNode.method.getName().equals("<clinit>")) {
                     // also skip clinit
                     return;

@@ -9,7 +9,27 @@ import java.util.concurrent.ConcurrentHashMap;
  * Used to manage all additional constructors that need to be generated during IR transformation
  */
 public class ConstructorGenerator {
+
+    private final Map<ConstructorPair, String> constructors = new ConcurrentHashMap<>();
+
+    public void add(String owner, String[] parameterTypes, String baseOwner) {
+        ConstructorPair index = new ConstructorPair(owner, parameterTypes);
+        String oldValue = constructors.put(index, baseOwner);
+        if (oldValue != null && !oldValue.equals(baseOwner)) {
+            throw new ConstructorMismatchException(oldValue, baseOwner);
+        }
+    }
+
+    public boolean isEmpty() {
+        return constructors.isEmpty();
+    }
+
+    public Iterable<Map.Entry<ConstructorPair, String>> entries() {
+        return constructors.entrySet();
+    }
+
     public static final class ConstructorPair {
+
         private final String owner;
         private final String[] parameterTypes;
 
@@ -38,14 +58,17 @@ public class ConstructorGenerator {
         public int hashCode() {
             return Objects.hash(owner, Arrays.hashCode(parameterTypes));
         }
+
     }
 
     public static final class ConstructorMismatchException extends RuntimeException {
+
         private final String oldBase;
         private final String newBase;
 
         public ConstructorMismatchException(String oldBase, String newBase) {
-            super(String.format("Internal error: Mismatch in constructor types, expected base class %s, but got %s", oldBase, newBase));
+            super(String.format("Internal error: Mismatch in constructor types, expected base class %s, but got %s",
+                    oldBase, newBase));
             this.oldBase = oldBase;
             this.newBase = newBase;
         }
@@ -57,23 +80,7 @@ public class ConstructorGenerator {
         public String getNewBase() {
             return newBase;
         }
+
     }
 
-    private final Map<ConstructorPair, String> constructors = new ConcurrentHashMap<>();
-
-    public void Add(String owner, String[] parameterTypes, String baseOwner) {
-        ConstructorPair index = new ConstructorPair(owner, parameterTypes);
-        String oldValue = constructors.put(index, baseOwner);
-        if (oldValue != null && !oldValue.equals(baseOwner)) {
-            throw new ConstructorMismatchException(oldValue, baseOwner);
-        }
-    }
-
-    public boolean isEmpty() {
-        return constructors.isEmpty();
-    }
-
-    public Iterable<Map.Entry<ConstructorPair, String>> entries() {
-        return constructors.entrySet();
-    }
 }

@@ -9,12 +9,32 @@ import com.googlecode.d2j.Proto;
 import com.googlecode.d2j.Visibility;
 import com.googlecode.d2j.converter.Dex2IRConverter;
 import com.googlecode.d2j.converter.IR2JConverter;
-import com.googlecode.d2j.node.*;
+import com.googlecode.d2j.node.DexAnnotationNode;
+import com.googlecode.d2j.node.DexClassNode;
+import com.googlecode.d2j.node.DexCodeNode;
+import com.googlecode.d2j.node.DexFieldNode;
+import com.googlecode.d2j.node.DexFileNode;
+import com.googlecode.d2j.node.DexMethodNode;
 import com.googlecode.d2j.node.insn.MethodStmtNode;
 import com.googlecode.d2j.node.insn.Stmt0RNode;
 import com.googlecode.d2j.reader.Op;
 import com.googlecode.dex2jar.ir.IrMethod;
-import com.googlecode.dex2jar.ir.ts.*;
+import com.googlecode.dex2jar.ir.ts.AggTransformer;
+import com.googlecode.dex2jar.ir.ts.CleanLabel;
+import com.googlecode.dex2jar.ir.ts.ConstructorGenerator;
+import com.googlecode.dex2jar.ir.ts.DeadCodeTransformer;
+import com.googlecode.dex2jar.ir.ts.EndRemover;
+import com.googlecode.dex2jar.ir.ts.ExceptionHandlerTrim;
+import com.googlecode.dex2jar.ir.ts.Ir2JRegAssignTransformer;
+import com.googlecode.dex2jar.ir.ts.MultiArrayTransformer;
+import com.googlecode.dex2jar.ir.ts.NewTransformer;
+import com.googlecode.dex2jar.ir.ts.NpeTransformer;
+import com.googlecode.dex2jar.ir.ts.RemoveConstantFromSSA;
+import com.googlecode.dex2jar.ir.ts.RemoveLocalFromSSA;
+import com.googlecode.dex2jar.ir.ts.TypeTransformer;
+import com.googlecode.dex2jar.ir.ts.UnSSATransformer;
+import com.googlecode.dex2jar.ir.ts.VoidInvokeTransformer;
+import com.googlecode.dex2jar.ir.ts.ZeroTransformer;
 import com.googlecode.dex2jar.ir.ts.array.FillArrayTransformer;
 import com.googlecode.dex2jar.tools.Constants;
 import java.io.InputStream;
@@ -28,8 +48,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.Stack;
-import java.util.stream.IntStream;
-
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -131,7 +149,7 @@ public class Dex2Asm {
     protected static final int ACC_INTERFACE_ABSTRACT = (Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT);
 
     private static final int NO_CODE_MASK = DexConstants.ACC_ABSTRACT | DexConstants.ACC_NATIVE
-            | DexConstants.ACC_ANNOTATION;
+                                            | DexConstants.ACC_ANNOTATION;
 
     protected static final CleanLabel T_CLEAN_LABEL = new CleanLabel();
 
@@ -342,10 +360,10 @@ public class Dex2Asm {
             }
         }
         if (isSignatureNotValid(signature, false)) {
-            System.err.println("Applying workaround to method "
-                    + methodNode.method
-                    + " by removing its original signature "
-                    + signature + ".");
+            System.err.println("Applying workaround to method " +
+                               methodNode.method +
+                               " by removing its original signature " +
+                               signature + ".");
             signature = null;
         }
 
@@ -419,15 +437,18 @@ public class Dex2Asm {
         return classes;
     }
 
-    public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf, DexFileNode fileNode, ConstructorGenerator constructorGenerator) {
+    public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf, DexFileNode fileNode,
+                             ConstructorGenerator constructorGenerator) {
         convertClass(fileNode.dexVersion, classNode, cvf, collectClzInfo(fileNode), constructorGenerator);
     }
 
-    public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf, ConstructorGenerator constructorGenerator) {
+    public void convertClass(DexClassNode classNode, ClassVisitorFactory cvf,
+                             ConstructorGenerator constructorGenerator) {
         convertClass(DexConstants.DEX_035, classNode, cvf, constructorGenerator);
     }
 
-    public void convertClass(int dexVersion, DexClassNode classNode, ClassVisitorFactory cvf, ConstructorGenerator constructorGenerator) {
+    public void convertClass(int dexVersion, DexClassNode classNode, ClassVisitorFactory cvf,
+                             ConstructorGenerator constructorGenerator) {
         convertClass(dexVersion, classNode, cvf, new HashMap<>(), constructorGenerator);
     }
 
@@ -446,12 +467,13 @@ public class Dex2Asm {
         return true;
     }
 
-    protected ClassVisitor convertClass(DexClassNode classNode, ClassVisitorFactory cvf, Map<String, Clz> classes, ConstructorGenerator constructorGenerator) {
+    protected ClassVisitor convertClass(DexClassNode classNode, ClassVisitorFactory cvf, Map<String, Clz> classes,
+                                        ConstructorGenerator constructorGenerator) {
         return convertClass(DexConstants.DEX_035, classNode, cvf, classes, constructorGenerator);
     }
 
     protected ClassVisitor convertClass(DexFileNode dfn, DexClassNode classNode, ClassVisitorFactory cvf,
-                             Map<String, Clz> classes, ConstructorGenerator constructorGenerator) {
+                                        Map<String, Clz> classes, ConstructorGenerator constructorGenerator) {
         return convertClass(dfn.dexVersion, classNode, cvf, classes, constructorGenerator);
     }
 
@@ -464,7 +486,7 @@ public class Dex2Asm {
     }
 
     protected ClassVisitor convertClass(int dexVersion, DexClassNode classNode, ClassVisitorFactory cvf,
-                             Map<String, Clz> classes, ConstructorGenerator constructorGenerator) {
+                                        Map<String, Clz> classes, ConstructorGenerator constructorGenerator) {
         ClassVisitor cv = cvf.create(toInternalName(classNode.className));
         if (cv == null) {
             return null;
@@ -508,10 +530,10 @@ public class Dex2Asm {
         access = clearClassAccess(isInnerClass, access);
 
         if (isSignatureNotValid(signature, false)) {
-            System.err.println("Applying workaround to class"
-                    + " " + classNode.className
-                    + " by removing its original signature "
-                    + signature + ".");
+            System.err.println("Applying workaround to class " +
+                               classNode.className +
+                               " by removing its original signature " +
+                               signature + ".");
             signature = null;
         }
 
@@ -540,8 +562,8 @@ public class Dex2Asm {
         innerClassNodes.sort(INNER_CLASS_NODE_COMPARATOR);
         for (InnerClassNode icn : innerClassNodes) {
             if (icn.innerName != null && !isJavaIdentifier(icn.innerName)) {
-                System.err.println("WARN: Ignored invalid inner-class name, "
-                        + "treat as anonymous inner class. (" + icn.innerName + ")");
+                System.err.println("WARN: Ignored invalid inner-class name, " +
+                                   "treat as anonymous inner class. (" + icn.innerName + ")");
                 icn.innerName = null;
                 icn.outerName = null;
             }
@@ -616,7 +638,8 @@ public class Dex2Asm {
         }
     }
 
-    public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx, ConstructorGenerator constructorGenerator) {
+    public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx,
+                            ConstructorGenerator constructorGenerator) {
         IrMethod irMethod = dex2ir(methodNode);
         optimize(irMethod, constructorGenerator);
         ir2j(irMethod, mv, clzCtx);
@@ -629,7 +652,8 @@ public class Dex2Asm {
             final Map<String, ClassVisitor> classVisitors = new HashMap<>(classes.size());
 
             for (DexClassNode classNode : fileNode.clzs) {
-                classVisitors.put(classNode.className, convertClass(fileNode, classNode, cvf, classes, constructorGenerator));
+                classVisitors.put(classNode.className, convertClass(fileNode, classNode, cvf, classes,
+                        constructorGenerator));
             }
 
             if (!constructorGenerator.isEmpty()) {
@@ -669,10 +693,10 @@ public class Dex2Asm {
         // https://github.com/pxb1988/dex2jar/issues/455
         // try validate signature before call visitField
         if (isSignatureNotValid(signature, true)) {
-            System.err.println("Applying workaround to field "
-                    + fieldNode.field
-                    + " by removing its original signature "
-                    + signature + ".");
+            System.err.println("Applying workaround to field " +
+                               fieldNode.field +
+                               " by removing its original signature " +
+                               signature + ".");
             signature = null;
         }
 
@@ -778,7 +802,8 @@ public class Dex2Asm {
         return h;
     }
 
-    public void convertMethod(DexClassNode classNode, DexMethodNode methodNode, ClassVisitor cv, ClzCtx clzCtx, ConstructorGenerator constructorGenerator) {
+    public void convertMethod(DexClassNode classNode, DexMethodNode methodNode, ClassVisitor cv, ClzCtx clzCtx,
+                              ConstructorGenerator constructorGenerator) {
 
         MethodVisitor mv = collectBasicMethodInfo(methodNode, cv);
 
@@ -897,8 +922,10 @@ public class Dex2Asm {
         T_IR_2_J_REG_ASSIGN.transform(irMethod);
     }
 
-    protected void insertConstructors(List<DexClassNode> classNodeList, Map<String, ClassVisitor> classes, ConstructorGenerator constructorGenerator) {
-        Map<ConstructorGenerator.ConstructorPair, DexClassNode> resolvedConstructors = new HashMap<>(classNodeList.size());
+    protected void insertConstructors(List<DexClassNode> classNodeList, Map<String, ClassVisitor> classes,
+                                      ConstructorGenerator constructorGenerator) {
+        Map<ConstructorGenerator.ConstructorPair, DexClassNode> resolvedConstructors =
+                new HashMap<>(classNodeList.size());
         for (Map.Entry<ConstructorGenerator.ConstructorPair, String> pair : constructorGenerator.entries()) {
             String owner = pair.getKey().getOwner();
             do {
@@ -907,15 +934,17 @@ public class Dex2Asm {
                         .filter(x -> x.className.equals(o))
                         .findFirst()
                         .orElseThrow(() -> new RuntimeException("No class found for constructor " + o));
-                resolvedConstructors.put(new ConstructorGenerator.ConstructorPair(owner, pair.getKey().getParameterTypes()), klass);
+                resolvedConstructors.put(new ConstructorGenerator.ConstructorPair(owner,
+                        pair.getKey().getParameterTypes()), klass);
                 owner = klass.superClass; // recursively add constructors until the desired constructor is found
             } while (!Objects.equals(owner, pair.getValue()));
         }
 
         for (Map.Entry<ConstructorGenerator.ConstructorPair, DexClassNode> pair : resolvedConstructors.entrySet()) {
-            DexClassNode klass = pair.getValue();
-            Method constructorMethod = new Method(pair.getKey().getOwner(), "<init>", pair.getKey().getParameterTypes(), "V");
-            Method superMethod = new Method(klass.superClass, "<init>", pair.getKey().getParameterTypes(), "V");
+            DexClassNode clazz = pair.getValue();
+            Method constructorMethod = new Method(pair.getKey().getOwner(), "<init>",
+                    pair.getKey().getParameterTypes(), "V");
+            Method superMethod = new Method(clazz.superClass, "<init>", pair.getKey().getParameterTypes(), "V");
             int[] callArgs = new int[pair.getKey().getParameterTypes().length + 1];
             Arrays.setAll(callArgs, i -> i);
 
@@ -925,17 +954,18 @@ public class Dex2Asm {
             constructorCode.stmts.add(superCallNode);
             Stmt0RNode returnNode = new Stmt0RNode(Op.RETURN_VOID);
             constructorCode.stmts.add(returnNode);
-            DexMethodNode newConstructor = new DexMethodNode(DexConstants.ACC_PUBLIC | DexConstants.ACC_CONSTRUCTOR, constructorMethod);
+            DexMethodNode newConstructor = new DexMethodNode(DexConstants.ACC_PUBLIC | DexConstants.ACC_CONSTRUCTOR,
+                    constructorMethod);
             newConstructor.codeNode = constructorCode;
-            if (klass.methods == null) {
-                klass.methods = new ArrayList<>();
+            if (clazz.methods == null) {
+                clazz.methods = new ArrayList<>();
             }
-            klass.methods.add(newConstructor);
+            clazz.methods.add(newConstructor);
 
-            ClassVisitor cv = classes.get(klass.className);
+            ClassVisitor cv = classes.get(clazz.className);
             ClzCtx clzCtx = new ClzCtx();
-            clzCtx.classDescriptor = klass.className;
-            convertMethod(klass, newConstructor, cv, clzCtx, null);
+            clzCtx.classDescriptor = clazz.className;
+            convertMethod(clazz, newConstructor, cv, clzCtx, null);
         }
     }
 

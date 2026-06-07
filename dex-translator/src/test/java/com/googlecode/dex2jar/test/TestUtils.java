@@ -275,7 +275,8 @@ public abstract class TestUtils {
         // 1. convert to .class
         Dex2Asm dex2Asm = new Dex2Asm() {
             @Override
-            public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx, ConstructorGenerator constructorGenerator) {
+            public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx,
+                                    ConstructorGenerator constructorGenerator) {
                 try {
                     super.convertCode(methodNode, mv, clzCtx, constructorGenerator);
                 } catch (Exception ex) {

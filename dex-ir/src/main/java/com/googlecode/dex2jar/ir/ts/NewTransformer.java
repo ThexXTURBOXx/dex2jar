@@ -12,8 +12,14 @@ import com.googlecode.dex2jar.ir.stmt.AssignStmt;
 import com.googlecode.dex2jar.ir.stmt.LabelStmt;
 import com.googlecode.dex2jar.ir.stmt.Stmt;
 import com.googlecode.dex2jar.ir.stmt.Stmts;
-
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 import static com.googlecode.dex2jar.ir.expr.Value.VT.INVOKE_SPECIAL;
 import static com.googlecode.dex2jar.ir.expr.Value.VT.LOCAL;
@@ -156,9 +162,10 @@ public class NewTransformer implements Transformer {
             InvokeExpr invokeNew = Exprs.nInvokeNew(nOps, ie.getArgs(), thisType);
             if (!Objects.equals(thisType, ie.getOwner())) {
                 if (constructorGenerator == null) {
-                    throw new RuntimeException("No ConstructorGenerator supplied but required for correct transformation");
+                    throw new RuntimeException("No ConstructorGenerator supplied but required for correct " +
+                                               "transformation");
                 }
-                constructorGenerator.Add(thisType, ie.getArgs(), ie.getOwner());
+                constructorGenerator.add(thisType, ie.getArgs(), ie.getOwner());
             }
             method.stmts.replace(obj.invokeStmt, Stmts.nAssign(obj.local, invokeNew));
         }

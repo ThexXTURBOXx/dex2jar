@@ -8,16 +8,24 @@ import com.googlecode.d2j.node.DexFileNode;
 import com.googlecode.d2j.reader.BaseDexFileReader;
 import com.googlecode.d2j.reader.DexFileReader;
 import com.googlecode.d2j.reader.MultiDexFileReader;
+import com.googlecode.dex2jar.ir.ts.ConstructorGenerator;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.*;
-
-import com.googlecode.dex2jar.ir.ts.ConstructorGenerator;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 
@@ -129,7 +137,8 @@ public class Dex2jarMultiThreadCmd extends BaseCmd {
                     final Map<String, ClassVisitor> classVisitors = new ConcurrentHashMap<>(classes.size());
                     final ConstructorGenerator constructorGenerator = new ConstructorGenerator();
                     for (final DexClassNode classNode : fileNode.clzs) {
-                        results.add(executorService.submit(() -> classVisitors.put(classNode.className, convertClass(fileNode, classNode, cvf, classes, constructorGenerator))));
+                        results.add(executorService.submit(() -> classVisitors.put(classNode.className,
+                                convertClass(fileNode, classNode, cvf, classes, constructorGenerator))));
                     }
                     executorService.submit(() -> {
                         for (Future<?> result : results) {

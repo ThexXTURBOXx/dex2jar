@@ -850,7 +850,9 @@ public class Dex2Asm {
         if ((NO_CODE_MASK & methodNode.access) == 0) { // has code
             if (methodNode.codeNode != null) {
                 mv.visitCode();
+                if (constructorGenerator != null) constructorGenerator.enterClass(classNode.className, classNode.superClass);
                 convertCode(methodNode, mv, clzCtx, constructorGenerator);
+                if (constructorGenerator != null) constructorGenerator.leaveClass();
             }
         }
 

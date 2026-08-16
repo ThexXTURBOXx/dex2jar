@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ConstructorGenerator {
 
     private final Map<ConstructorPair, String> constructors = new ConcurrentHashMap<>();
+    private String currentParentClass;
 
     public void add(String owner, String[] parameterTypes, String baseOwner) {
         ConstructorPair index = new ConstructorPair(owner, parameterTypes);
@@ -22,6 +23,19 @@ public class ConstructorGenerator {
 
     public boolean isEmpty() {
         return constructors.isEmpty();
+    }
+
+    public void enterClass(String owner, String baseOwner) {
+        if (currentParentClass != null) throw new IllegalStateException("Enter called without reset, recursion is not implemented");
+        currentParentClass = baseOwner;
+    }
+
+    public void leaveClass() {
+        currentParentClass = null;
+    }
+
+    public String getCurrentParentClass() {
+        return currentParentClass;
     }
 
     public Iterable<Map.Entry<ConstructorPair, String>> entries() {

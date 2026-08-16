@@ -63,7 +63,13 @@ public class NewTransformer implements Transformer {
         // a=new Abc();
         // b=a;
         // =========
+        // also fixup calls to <init> to use correct class, since Dex allows invoke-special on parent class
         replaceX(method, constructorGenerator);
+
+        // 1a. fixup super constructor calls, similar to new calls in replaceX
+        if ("<init>".equals(method.name) && constructorGenerator != null) {
+            replaceSuper(method, constructorGenerator);
+        }
 
         // 2. replace NEW Abc;.<init>() -> new Abc();
         replaceAST(method);
@@ -85,6 +91,27 @@ public class NewTransformer implements Transformer {
             if (!init.isEmpty()) {
                 replace0(method, init, size, constructorGenerator);
             }
+            for (Stmt stmt : method.stmts) {
+                stmt.frame = null;
+            }
+        }
+    }
+
+    void replaceSuper(IrMethod method, ConstructorGenerator constructorGenerator) {
+        final HashMap<InvokeExpr, Stmt> init = new HashMap<>();
+        for (Stmt p : method.stmts) {
+            if (p.st == VOID_INVOKE && p.getOp().vt == INVOKE_SPECIAL) {
+                // the stmt is a new assign stmt
+                InvokeExpr local = (InvokeExpr) p.getOp();
+                if ("<init>".equals(local.method.getName()) && !Objects.equals(constructorGenerator.getCurrentParentClass(), local.getOwner())) {
+                    init.put(local, p);
+                }
+            }
+        }
+
+        if (!init.isEmpty()) {
+            final int size = Cfg.reIndexLocal(method);
+            replace1(method, init, size, constructorGenerator);
             for (Stmt stmt : method.stmts) {
                 stmt.frame = null;
             }
@@ -168,6 +195,17 @@ public class NewTransformer implements Transformer {
                 constructorGenerator.add(thisType, ie.getArgs(), ie.getOwner());
             }
             method.stmts.replace(obj.invokeStmt, Stmts.nAssign(obj.local, invokeNew));
+        }
+    }
+
+    void replace1(IrMethod method, Map<InvokeExpr, Stmt> init, int size, ConstructorGenerator constructorGenerator) {
+        for (Map.Entry<InvokeExpr, Stmt> obj : init.entrySet()) {
+            Stmt p = obj.getValue();
+            InvokeExpr ie = obj.getKey();
+            InvokeExpr invokeSuperFixed = Exprs.nInvokeSpecial(ie.getOps(), constructorGenerator.getCurrentParentClass(),
+                    ie.getName(), ie.getArgs(), ie.getRet());
+            p.setOp(invokeSuperFixed);
+            constructorGenerator.add(constructorGenerator.getCurrentParentClass(), ie.getArgs(), ie.getOwner());
         }
     }
 

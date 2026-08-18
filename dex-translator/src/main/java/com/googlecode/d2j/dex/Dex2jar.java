@@ -116,7 +116,7 @@ public final class Dex2jar {
                             return super.getCommonSuperClass(type1, type2);
                         } catch (Throwable t) {
                             // If all else fails
-                            return "java/util/Object";
+                            return "java/lang/Object";
                         }
                     }
                 };

@@ -2,6 +2,7 @@ package com.googlecode.d2j.dex;
 
 import com.googlecode.d2j.DexException;
 import com.googlecode.d2j.node.DexMethodNode;
+import com.googlecode.dex2jar.ir.ts.ConstructorGenerator;
 import com.googlecode.dex2jar.tools.Constants;
 import org.objectweb.asm.AsmBridge;
 import org.objectweb.asm.MethodVisitor;
@@ -16,12 +17,13 @@ public class ExDex2Asm extends Dex2Asm {
     }
 
     @Override
-    public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx) {
+    public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx,
+                            ConstructorGenerator constructorGenerator) {
         MethodVisitor mw = AsmBridge.searchMethodWriter(mv);
         MethodNode mn = new MethodNode(Constants.ASM_VERSION, methodNode.access, methodNode.method.getName(),
                 methodNode.method.getDesc(), null, null);
         try {
-            super.convertCode(methodNode, mn, clzCtx);
+            super.convertCode(methodNode, mn, clzCtx, constructorGenerator);
         } catch (Exception ex) {
             if (exceptionHandler == null) {
                 new DexException(ex, "Failed to convert code for %s", methodNode.method)

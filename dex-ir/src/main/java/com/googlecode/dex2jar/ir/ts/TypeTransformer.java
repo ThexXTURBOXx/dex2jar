@@ -494,6 +494,10 @@ public class TypeTransformer implements Transformer {
                 } else if (!ta.fixed && tb.fixed) {
                     return b;
                 } else if (ta.fixed) {
+                    if ((ta == TypeClass.INT && tb == TypeClass.BOOLEAN)
+                            || (tb == TypeClass.INT && ta == TypeClass.BOOLEAN)) {
+                        return buildArray(as, "I");
+                    }
                     if (ta != tb) {
                         return buildArray(as == 0 ? 0 : as - 1, "L");
                     }

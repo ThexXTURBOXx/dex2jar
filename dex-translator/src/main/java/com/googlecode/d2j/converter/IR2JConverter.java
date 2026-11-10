@@ -590,6 +590,9 @@ public class IR2JConverter implements Opcodes {
             // IFx
             // IF_ICMPx
             if (isZeroOrNull(v1) || isZeroOrNull(v2)) { // IFx
+                // "0 OP v2" is compared with v2 on the stack, so the operator has to be mirrored
+                // (0 > v2 is v2 < 0); EQ and NE are symmetric.
+                boolean mirrored = !isZeroOrNull(v2);
                 if (isZeroOrNull(v2)) { // v2 is zero
                     accept(v1, asm);
                 } else {
@@ -603,16 +606,16 @@ public class IR2JConverter implements Opcodes {
                     asm.visitJumpInsn(IFEQ, target);
                     break;
                 case GE:
-                    asm.visitJumpInsn(IFGE, target);
+                    asm.visitJumpInsn(mirrored ? IFLE : IFGE, target);
                     break;
                 case GT:
-                    asm.visitJumpInsn(IFGT, target);
+                    asm.visitJumpInsn(mirrored ? IFLT : IFGT, target);
                     break;
                 case LE:
-                    asm.visitJumpInsn(IFLE, target);
+                    asm.visitJumpInsn(mirrored ? IFGE : IFLE, target);
                     break;
                 case LT:
-                    asm.visitJumpInsn(IFLT, target);
+                    asm.visitJumpInsn(mirrored ? IFGT : IFLT, target);
                     break;
                 default:
                     break;

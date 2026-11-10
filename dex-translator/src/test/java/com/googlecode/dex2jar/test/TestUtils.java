@@ -19,6 +19,7 @@ import com.googlecode.d2j.node.DexMethodNode;
 import com.googlecode.d2j.reader.zip.ZipUtil;
 import com.googlecode.d2j.smali.BaksmaliDumper;
 import com.googlecode.d2j.visitors.DexClassVisitor;
+import com.googlecode.dex2jar.ir.ts.ConstructorGenerator;
 import com.googlecode.dex2jar.tools.Constants;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -274,9 +275,10 @@ public abstract class TestUtils {
         // 1. convert to .class
         Dex2Asm dex2Asm = new Dex2Asm() {
             @Override
-            public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx) {
+            public void convertCode(DexMethodNode methodNode, MethodVisitor mv, ClzCtx clzCtx,
+                                    ConstructorGenerator constructorGenerator) {
                 try {
-                    super.convertCode(methodNode, mv, clzCtx);
+                    super.convertCode(methodNode, mv, clzCtx, constructorGenerator);
                 } catch (Exception ex) {
                     BaksmaliDumper d = new BaksmaliDumper();
                     try {
@@ -295,9 +297,9 @@ public abstract class TestUtils {
         final LambadaNameSafeClassAdapter rca = new LambadaNameSafeClassAdapter(cw, false);
         ClassVisitorFactory cvf = classInternalName -> rca;
         if (fileNode != null) {
-            dex2Asm.convertClass(clzNode, cvf, fileNode);
+            dex2Asm.convertClass(clzNode, cvf, fileNode, null);
         } else {
-            dex2Asm.convertClass(clzNode, cvf);
+            dex2Asm.convertClass(clzNode, cvf, null);
         }
         byte[] data = cw.toByteArray();
 
